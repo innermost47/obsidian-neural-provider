@@ -1,10 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: ================================================================
-::  OBSIDIAN Neural Provider — Install Script (Windows)
-:: ================================================================
-
 echo.
 echo ==================================================
 echo   OBSIDIAN Neural Provider -- Installation
@@ -58,7 +54,14 @@ if not errorlevel 1 (
         echo     CUDA Version: !CUDA_VERSION!
     )
 ) else (
-    echo [WARN] No NVIDIA GPU detected -- will run on CPU (slow)
+    echo.
+    echo [ERROR] No NVIDIA GPU detected.
+    echo         CPU mode is not allowed in the OBSIDIAN Neural provider network.
+    echo         Minimum requirement: NVIDIA RTX 3070 ^(8GB VRAM^)
+    echo                           or NVIDIA RTX 3060 ^(4GB VRAM^) for the small model.
+    echo.
+    pause
+    exit /b 1
 )
 
 echo.
@@ -77,22 +80,17 @@ echo [OK] Virtual environment created
 echo.
 echo [..] Installing PyTorch...
 
-if "!HAS_CUDA!"=="true" (
-    set CUDA_MAJOR=0
-    if not "!CUDA_VERSION!"=="" (
-        for /f "tokens=1 delims=." %%m in ("!CUDA_VERSION!") do set CUDA_MAJOR=%%m
-    )
+set CUDA_MAJOR=0
+if not "!CUDA_VERSION!"=="" (
+    for /f "tokens=1 delims=." %%m in ("!CUDA_VERSION!") do set CUDA_MAJOR=%%m
+)
 
-    if !CUDA_MAJOR! GEQ 12 (
-        echo     CUDA 12.x detected, installing cu121...
-        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 --quiet
-    ) else (
-        echo     CUDA 11.x detected, installing cu118...
-        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 --quiet
-    )
+if !CUDA_MAJOR! GEQ 12 (
+    echo     CUDA 12.x detected, installing cu121...
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 --quiet
 ) else (
-    echo     No GPU -- installing CPU version...
-    pip install torch torchvision torchaudio --quiet
+    echo     CUDA 11.x detected, installing cu118...
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 --quiet
 )
 
 if errorlevel 1 (
@@ -121,13 +119,13 @@ if torch.cuda.is_available():
     print(f'[OK] CUDA available: {name}')
     print(f'     VRAM: {vram:.1f} GB')
     if vram < 4:
-        print('[WARN] Less than 4GB VRAM -- even small model may not fit')
+        print('[ERROR] Less than 4GB VRAM -- GPU not supported')
     elif vram < 8:
-        print('[INFO] 4-8GB VRAM -- use --model stable-audio-open-small')
+        print('[INFO] 4-8GB VRAM -- use MODEL=stable-audio-open-small in .env')
     else:
         print('[INFO] 8GB+ VRAM -- both models supported')
 else:
-    print('[WARN] No GPU acceleration -- CPU only (very slow)')
+    print('[ERROR] CUDA not available after installation -- check your drivers')
 "
 
 echo.
@@ -135,15 +133,12 @@ echo ==================================================
 echo   Installation complete!
 echo ==================================================
 echo.
-echo   Start the provider server:
+echo   1. Copy .env.example to .env and fill in your API key:
+echo      copy .env.example .env
 echo.
-echo   venv\Scripts\activate.bat
-echo.
-echo   Full model (RTX 3070+, 8GB VRAM):
-echo   python provider.py --key YOUR_API_KEY
-echo.
-echo   Small model (RTX 3060+, 4GB VRAM):
-echo   python provider.py --key YOUR_API_KEY --model stable-audio-open-small
+echo   2. Start the provider server:
+echo      venv\Scripts\activate.bat
+echo      python provider.py
 echo.
 echo   Your API key is provided by the OBSIDIAN Neural admin.
 echo ==================================================

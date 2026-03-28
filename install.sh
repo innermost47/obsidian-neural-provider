@@ -14,6 +14,7 @@ echo "  OBSIDIAN Neural Provider — Installation"
 echo "=================================================="
 echo ""
 
+# ── Vérification Python ───────────────────────────────────────────
 if ! command -v python3 &>/dev/null; then
     echo "❌ Python 3 not found. Please install Python 3.10+ first."
     exit 1
@@ -30,6 +31,7 @@ fi
 
 echo "✅ Python $PYTHON_VERSION detected"
 
+# ── Détection GPU ─────────────────────────────────────────────────
 HAS_CUDA=false
 HAS_ROCM=false
 HAS_METAL=false
@@ -55,15 +57,22 @@ elif [[ "$(uname)" == "Darwin" ]]; then
 fi
 
 if [ "$HAS_CUDA" = false ] && [ "$HAS_ROCM" = false ] && [ "$HAS_METAL" = false ]; then
-    echo "⚠️  No GPU detected — will run on CPU (slow)"
+    echo ""
+    echo "❌ No GPU detected."
+    echo "   CPU mode is not allowed in the OBSIDIAN Neural provider network."
+    echo "   Minimum: NVIDIA RTX 3070 (8GB) or RTX 3060 (4GB) for the small model."
+    echo ""
+    exit 1
 fi
 
+# ── Environnement virtuel ─────────────────────────────────────────
 echo ""
 echo "📦 Creating virtual environment..."
 python3 -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
 pip install --upgrade pip --quiet
 
+# ── Installation PyTorch ──────────────────────────────────────────
 echo ""
 echo "🔥 Installing PyTorch..."
 
@@ -96,11 +105,13 @@ fi
 
 echo "✅ PyTorch installed"
 
+# ── Dépendances provider ──────────────────────────────────────────
 echo ""
 echo "📦 Installing provider dependencies..."
 pip install -r requirements_provider.txt --quiet
 echo "✅ Dependencies installed"
 
+# ── Vérification CUDA disponible ──────────────────────────────────
 echo ""
 python3 -c "
 import torch
@@ -117,9 +128,10 @@ if torch.cuda.is_available():
 elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
     print('✅ Apple MPS available')
 else:
-    print('⚠️  No GPU acceleration — CPU only (very slow)')
+    print('❌ CUDA not available after installation -- check your drivers')
 "
 
+# ── Résumé ────────────────────────────────────────────────────────
 echo ""
 echo "=================================================="
 echo "  Installation complete!"

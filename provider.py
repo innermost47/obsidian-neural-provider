@@ -121,11 +121,7 @@ class AudioGenerator:
             )
             self.pipeline = self.pipeline.to(self.device)
         else:
-            self.pipeline = StableAudioPipeline.from_pretrained(
-                self.model_id,
-                torch_dtype=torch.float32,
-            )
-            self.pipeline = self.pipeline.to(self.device)
+            raise RuntimeError("No CUDA GPU available. CPU mode is not allowed.")
 
         self.sample_rate = self.pipeline.vae.sampling_rate
         print(f"✅ Model loaded (sample rate: {self.sample_rate}Hz)")
@@ -332,6 +328,15 @@ if __name__ == "__main__":
     if MODEL_KEY not in SUPPORTED_MODELS:
         print(
             f"❌ Unknown model: {MODEL_KEY}. Choose from: {list(SUPPORTED_MODELS.keys())}"
+        )
+        exit(1)
+
+    if not torch.cuda.is_available():
+        print(
+            "❌ No CUDA GPU detected. CPU mode is not allowed in the provider network."
+        )
+        print(
+            "   Minimum requirement: NVIDIA RTX 3070 (8GB VRAM) or RTX 3060 (4GB VRAM) for the small model."
         )
         exit(1)
 
