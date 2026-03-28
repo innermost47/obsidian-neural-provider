@@ -90,7 +90,7 @@ echo [OK] PyTorch installed
 
 echo.
 echo [..] Installing provider dependencies...
-pip install -r requirements_provider.txt --quiet
+pip install -r requirements.txt --quiet
 if errorlevel 1 (
     echo [ERROR] Dependency installation failed
     pause
