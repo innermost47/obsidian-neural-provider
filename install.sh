@@ -3,7 +3,7 @@
 #  OBSIDIAN Neural Provider — Install Script (Linux / macOS)
 # ================================================================
 
-set -e
+set -o pipefail
 
 PYTHON_MIN="3.10"
 VENV_DIR="venv"
@@ -14,7 +14,6 @@ echo "  OBSIDIAN Neural Provider — Installation"
 echo "=================================================="
 echo ""
 
-# ── Vérification Python ───────────────────────────────────────────
 if ! command -v python3 &>/dev/null; then
     echo "❌ Python 3 not found. Please install Python 3.10+ first."
     exit 1
@@ -31,7 +30,6 @@ fi
 
 echo "✅ Python $PYTHON_VERSION detected"
 
-# ── Détection GPU ─────────────────────────────────────────────────
 HAS_CUDA=false
 HAS_ROCM=false
 HAS_METAL=false
@@ -65,14 +63,12 @@ if [ "$HAS_CUDA" = false ] && [ "$HAS_ROCM" = false ] && [ "$HAS_METAL" = false 
     exit 1
 fi
 
-# ── Environnement virtuel ─────────────────────────────────────────
 echo ""
 echo "📦 Creating virtual environment..."
 python3 -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
 pip install --upgrade pip --quiet
 
-# ── Installation PyTorch ──────────────────────────────────────────
 echo ""
 echo "🔥 Installing PyTorch..."
 
@@ -105,13 +101,11 @@ fi
 
 echo "✅ PyTorch installed"
 
-# ── Dépendances provider ──────────────────────────────────────────
 echo ""
 echo "📦 Installing provider dependencies..."
 pip install -r requirements_provider.txt --quiet
 echo "✅ Dependencies installed"
 
-# ── Vérification CUDA disponible ──────────────────────────────────
 echo ""
 python3 -c "
 import torch

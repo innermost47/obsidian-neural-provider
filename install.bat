@@ -39,30 +39,13 @@ set GPU_NAME=
 
 nvidia-smi >nul 2>&1
 if not errorlevel 1 (
-    set HAS_CUDA=true
     for /f "tokens=*" %%g in ('nvidia-smi --query-gpu^=name --format^=csv^,noheader 2^>nul') do (
         set GPU_NAME=%%g
         goto :gpu_found
     )
     :gpu_found
+    set HAS_CUDA=true
     echo [OK] NVIDIA GPU detected: !GPU_NAME!
-
-    for /f "tokens=*" %%c in ('nvidia-smi ^| findstr "CUDA Version"') do (
-        for /f "tokens=3" %%v in ("%%c") do set CUDA_VERSION=%%v
-    )
-    if not "!CUDA_VERSION!"=="" (
-        echo     CUDA Version: !CUDA_VERSION!
-    )
-) else (
-    echo.
-    echo [ERROR] No NVIDIA GPU detected.
-    echo         CPU mode is not allowed in the OBSIDIAN Neural provider network.
-    echo         Minimum requirement: NVIDIA RTX 3070 ^(8GB VRAM^)
-    echo                           or NVIDIA RTX 3060 ^(4GB VRAM^) for the small model.
-    echo.
-    pause
-    exit /b 1
-)
 
 echo.
 echo [..] Creating virtual environment...
