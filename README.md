@@ -18,6 +18,14 @@
 
 ---
 
+## 🚧 En construction / Under Construction
+
+🇫🇷 Le réseau de providers est actuellement en cours de mise en place. Je cherche activement des personnes motivées pour rejoindre le pool en phase 1 (10 providers max). Si vous avez un GPU compatible et l'envie de contribuer, ouvrez une discussion sur [GitHub](https://github.com/innermost47/ai-dj/discussions) !
+
+🇬🇧 The provider network is currently being set up. I'm actively looking for motivated people to join the pool in phase 1 (10 providers max). If you have a compatible GPU and want to contribute, open a discussion on [GitHub](https://github.com/innermost47/ai-dj/discussions)!
+
+---
+
 > 🇫🇷 [Français](#français) · 🇬🇧 [English](#english)
 
 ---
@@ -201,6 +209,35 @@ obsidian-neural-provider/
 ├── install.bat
 └── README.md
 ```
+
+---
+
+### Statistiques publiques
+
+Le serveur central expose en temps réel le nombre d'abonnés actifs :
+
+```
+GET https://api.obsidian-neural.com/api/v1/public/stats
+```
+
+Réponse :
+
+```json
+{
+  "paying_users": 42,
+  "updated_at": "2026-03-28T14:32:00Z"
+}
+```
+
+Ces données sont publiques et non authentifiées. Elles permettent à chaque provider de vérifier la croissance de la plateforme et d'estimer sa part mensuelle.
+
+Combiné avec `public/finances.json`, vous avez une vue complète et transparente de la santé financière du réseau :
+
+| Source                   | Données                                   |
+| ------------------------ | ----------------------------------------- |
+| `/api/v1/public/stats`   | Nombre d'abonnés actifs en temps réel     |
+| `/public/finances.json`  | Historique des redistributions mensuelles |
+| `/public/ownership.json` | Preuve de propriété des générations       |
 
 ---
 
@@ -408,6 +445,35 @@ obsidian-neural-provider/
 ├── install.bat
 └── README.md
 ```
+
+---
+
+### Public Statistics
+
+The central server exposes the number of active subscribers in real time:
+
+```
+GET https://api.obsidian-neural.com/api/v1/public/stats
+```
+
+Response:
+
+```json
+{
+  "paying_users": 42,
+  "updated_at": "2026-03-28T14:32:00Z"
+}
+```
+
+This endpoint is public and requires no authentication. It allows every provider to verify the platform's growth and estimate their monthly share.
+
+Combined with `public/finances.json`, you get a complete and transparent view of the network's financial health:
+
+| Source                   | Data                                  |
+| ------------------------ | ------------------------------------- |
+| `/api/v1/public/stats`   | Active subscribers count in real time |
+| `/public/finances.json`  | Monthly redistribution history        |
+| `/public/ownership.json` | Proof of generation ownership         |
 
 ---
 

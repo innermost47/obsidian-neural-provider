@@ -90,7 +90,7 @@ echo [OK] PyTorch installed
 
 echo.
 echo [..] Installing provider dependencies...
-pip install -r requirements.txt --quiet
+pip install -r requirements_provider.txt --quiet
 if errorlevel 1 (
     echo [ERROR] Dependency installation failed
     pause
@@ -99,22 +99,25 @@ if errorlevel 1 (
 echo [OK] Dependencies installed
 
 echo.
-python -c "
-import torch
-if torch.cuda.is_available():
-    name = torch.cuda.get_device_name(0)
-    vram = torch.cuda.get_device_properties(0).total_memory / 1024**3
-    print(f'[OK] CUDA available: {name}')
-    print(f'     VRAM: {vram:.1f} GB')
-    if vram < 4:
-        print('[ERROR] Less than 4GB VRAM -- GPU not supported')
-    elif vram < 8:
-        print('[INFO] 4-8GB VRAM -- set MODEL=stable-audio-open-small in .env')
-    else:
-        print('[INFO] 8GB+ VRAM -- both models supported')
-else:
-    print('[ERROR] CUDA not available after installation -- check your drivers')
-"
+echo [..] Checking CUDA availability...
+(
+echo import torch
+echo if torch.cuda.is_available^(^):
+echo     name = torch.cuda.get_device_name^(0^)
+echo     vram = torch.cuda.get_device_properties^(0^).total_memory / 1024**3
+echo     print^('[OK] CUDA available: ' + name^)
+echo     print^('[OK] VRAM: ' + str^(round^(vram, 1^)^) + ' GB'^)
+echo     if vram ^< 4:
+echo         print^('[ERROR] Less than 4GB VRAM -- GPU not supported'^)
+echo     elif vram ^< 8:
+echo         print^('[INFO] 4-8GB VRAM -- set MODEL=stable-audio-open-small in .env'^)
+echo     else:
+echo         print^('[INFO] 8GB+ VRAM -- both models supported'^)
+echo else:
+echo     print^('[ERROR] CUDA not available -- check your drivers'^)
+) > _check_gpu.py
+python _check_gpu.py
+del _check_gpu.py
 
 echo.
 echo ==================================================
