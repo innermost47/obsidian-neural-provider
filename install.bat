@@ -33,19 +33,24 @@ if !PYTHON_MAJOR! EQU 3 if !PYTHON_MINOR! LSS 10 (
 
 echo [OK] Python !PYTHON_VERSION! detected
 
-set HAS_CUDA=false
-set CUDA_VERSION=
-set GPU_NAME=
-
 nvidia-smi >nul 2>&1
-if not errorlevel 1 (
-    for /f "tokens=*" %%g in ('nvidia-smi --query-gpu^=name --format^=csv^,noheader 2^>nul') do (
-        set GPU_NAME=%%g
-        goto :gpu_found
-    )
-    :gpu_found
-    set HAS_CUDA=true
-    echo [OK] NVIDIA GPU detected: !GPU_NAME!
+if errorlevel 1 (
+    echo.
+    echo [ERROR] No NVIDIA GPU detected.
+    echo         CPU mode is not allowed in the OBSIDIAN Neural provider network.
+    echo         Minimum requirement: NVIDIA RTX 3070 ^(8GB VRAM^)
+    echo                           or NVIDIA RTX 3060 ^(4GB VRAM^) for the small model.
+    echo.
+    pause
+    exit /b 1
+)
+
+for /f "tokens=*" %%g in ('nvidia-smi --query-gpu^=name --format^=csv^,noheader 2^>nul') do set GPU_NAME=%%g
+set CUDA_VERSION=
+for /f "tokens=9" %%v in ('nvidia-smi ^| findstr /C:"CUDA Version"') do set CUDA_VERSION=%%v
+
+echo [OK] NVIDIA GPU detected: !GPU_NAME!
+if not "!CUDA_VERSION!"=="" echo     CUDA Version: !CUDA_VERSION!
 
 echo.
 echo [..] Creating virtual environment...
@@ -61,9 +66,9 @@ python -m pip install --upgrade pip --quiet
 echo [OK] Virtual environment created
 
 echo.
-echo [..] Installing PyTorch...
+echo [..] Installing PyTorch with CUDA support...
 
-set CUDA_MAJOR=0
+set CUDA_MAJOR=11
 if not "!CUDA_VERSION!"=="" (
     for /f "tokens=1 delims=." %%m in ("!CUDA_VERSION!") do set CUDA_MAJOR=%%m
 )
@@ -104,7 +109,7 @@ if torch.cuda.is_available():
     if vram < 4:
         print('[ERROR] Less than 4GB VRAM -- GPU not supported')
     elif vram < 8:
-        print('[INFO] 4-8GB VRAM -- use MODEL=stable-audio-open-small in .env')
+        print('[INFO] 4-8GB VRAM -- set MODEL=stable-audio-open-small in .env')
     else:
         print('[INFO] 8GB+ VRAM -- both models supported')
 else:
