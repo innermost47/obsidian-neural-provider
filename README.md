@@ -103,7 +103,7 @@ PROVIDER_API_KEY=op_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 CENTRAL_SERVER_URL=https://api.obsidian-neural.com
 MODEL=stable-audio-open-1.0
 HOST=0.0.0.0
-PORT=8001
+PORT=8000
 HEARTBEAT_INTERVAL=300
 ```
 
@@ -113,7 +113,7 @@ HEARTBEAT_INTERVAL=300
 | `CENTRAL_SERVER_URL` | URL du serveur central                                           |
 | `MODEL`              | `stable-audio-open-1.0` ou `stable-audio-open-small`             |
 | `HOST`               | Interface d'écoute (0.0.0.0 = toutes)                            |
-| `PORT`               | Port du serveur (défaut : 8001)                                  |
+| `PORT`               | Port du serveur (défaut : 8000)                                  |
 | `HEARTBEAT_INTERVAL` | Fréquence des heartbeats en secondes (défaut : 300)              |
 
 ---
@@ -339,7 +339,7 @@ PROVIDER_API_KEY=op_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 CENTRAL_SERVER_URL=https://api.obsidian-neural.com
 MODEL=stable-audio-open-1.0
 HOST=0.0.0.0
-PORT=8001
+PORT=8000
 HEARTBEAT_INTERVAL=300
 ```
 
@@ -349,7 +349,7 @@ HEARTBEAT_INTERVAL=300
 | `CENTRAL_SERVER_URL` | Central server URL                                               |
 | `MODEL`              | `stable-audio-open-1.0` or `stable-audio-open-small`             |
 | `HOST`               | Listening interface (0.0.0.0 = all)                              |
-| `PORT`               | Server port (default: 8001)                                      |
+| `PORT`               | Server port (default: 8000)                                      |
 | `HEARTBEAT_INTERVAL` | Heartbeat frequency in seconds (default: 300)                    |
 
 ---

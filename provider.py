@@ -25,7 +25,7 @@ PROVIDER_API_KEY: str = os.getenv("PROVIDER_API_KEY", "")
 CENTRAL_SERVER_URL: str = os.getenv("CENTRAL_SERVER_URL", "")
 HEARTBEAT_INTERVAL: int = int(os.getenv("HEARTBEAT_INTERVAL", "300"))
 HOST: str = os.getenv("HOST", "0.0.0.0")
-PORT: int = int(os.getenv("PORT", "8001"))
+PORT: int = int(os.getenv("PORT", "8000"))
 MODEL_KEY: str = os.getenv("MODEL", "stable-audio-open-1.0")
 
 SUPPORTED_MODELS = {
