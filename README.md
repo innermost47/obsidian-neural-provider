@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>GPU inference server for the OBSIDIAN Neural distributed network</strong><br/>
-  Contribute your GPU. Generate music. Share the revenue equally.
+  Contribute your GPU. Generate music. Share the revenue.
 </p>
 
 <p align="center">
@@ -41,7 +41,7 @@ Votre machine (provider)
 Musicien reçoit le son en temps réel
 ```
 
-Les revenus des abonnements sont redistribués **à parts égales** entre tous les providers actifs chaque mois via Stripe Connect.
+Les revenus des abonnements sont redistribués **à parts égales** entre tous les providers actifs chaque mois via Stripe Connect, après déduction d'une commission plateforme de 15% couvrant les coûts d'infrastructure (fal.ai, hébergement, maintenance). Cette commission est publiée publiquement chaque mois.
 
 ---
 
@@ -84,7 +84,7 @@ Les scripts détectent automatiquement votre GPU et installent la bonne version 
 
 ### Configuration
 
-Copiez le fichier `.env.example` en `.env` et remplissez-le :
+Copiez `.env.example` en `.env` et remplissez-le :
 
 ```bash
 cp .env.example .env
@@ -122,7 +122,7 @@ python provider.py
 Les arguments CLI surchargent le `.env` si besoin :
 
 ```bash
-python provider.py --key op_xxx --model stable-audio-open-small --port 8002
+python provider.py --key op_xxx --model stable-audio-open-small --port 8002 --server https://api.obsidian-neural.com
 ```
 
 ---
@@ -152,20 +152,32 @@ L'authentification se fait via le header `X-API-Key`.
 
 ### Heartbeat
 
-Le provider envoie automatiquement un heartbeat au serveur central toutes les 5 minutes (configurable via `HEARTBEAT_INTERVAL`). Cela permet au serveur central de savoir que votre machine est en ligne, indépendamment des pings aléatoires.
+Le provider envoie automatiquement un heartbeat au serveur central toutes les 5 minutes (configurable via `HEARTBEAT_INTERVAL`). Cela permet au serveur central de savoir que votre machine est en ligne indépendamment des pings aléatoires.
 
 ---
 
-### Éligibilité à la redistribution mensuelle
+### Redistribution mensuelle
 
-Vous recevez une part égale des revenus mensuels si :
+```
+Revenus mensuels
+    - 15% commission plateforme (fal.ai + hébergement + maintenance)
+    = Montant distribuable
+        ÷ nb providers éligibles
+        = Part égale par provider
+```
 
-1. **Uptime ≥ 60%** — vous avez répondu à au moins 60% des pings aléatoires du mois
-2. **≥ 1 job réel traité** dans le mois
+Exemple avec 180€ et 6 providers :
 
-Les pings sont envoyés à des **heures aléatoires** pour éviter la triche au cron. Le serveur doit tourner régulièrement — l'objectif est ~8h par jour.
+```
+180€ - 27€ = 153€ → 25.50€ par provider
+```
 
-La redistribution est **strictement égale** entre tous les providers éligibles.
+**Éligibilité :**
+
+1. Uptime ≥ 60% des pings aléatoires du mois
+2. Au moins 1 job réel traité dans le mois
+
+Les pings sont envoyés à des **heures aléatoires** pour éviter la triche au cron. La commission et les montants redistribués sont publiés publiquement chaque mois sur le serveur central.
 
 ---
 
@@ -236,7 +248,7 @@ Your machine (provider)
 Musician receives the sound in real time
 ```
 
-Subscription revenue is redistributed **equally** among all active providers each month via Stripe Connect.
+Subscription revenue is redistributed **equally** among all active providers each month via Stripe Connect, after deduction of a 15% platform fee covering infrastructure costs (fal.ai, hosting, maintenance). This fee is published publicly each month.
 
 ---
 
@@ -317,7 +329,7 @@ python provider.py
 CLI arguments override `.env` if needed:
 
 ```bash
-python provider.py --key op_xxx --model stable-audio-open-small --port 8002
+python provider.py --key op_xxx --model stable-audio-open-small --port 8002 --server https://api.obsidian-neural.com
 ```
 
 ---
@@ -351,16 +363,28 @@ The provider automatically sends a heartbeat to the central server every 5 minut
 
 ---
 
-### Monthly redistribution eligibility
+### Monthly redistribution
 
-You receive an equal share of monthly revenue if:
+```
+Monthly revenue
+    - 15% platform fee (fal.ai + hosting + maintenance)
+    = Distributable amount
+        ÷ nb eligible providers
+        = Equal share per provider
+```
 
-1. **Uptime ≥ 60%** — responded to at least 60% of random pings that month
-2. **≥ 1 real job processed** during the month
+Example with 180€ and 6 providers:
 
-Pings are sent at **random times** to prevent cron-based cheating. The server should run regularly — the goal is ~8 hours per day.
+```
+180€ - 27€ = 153€ → 25.50€ per provider
+```
 
-Redistribution is **strictly equal** among all eligible providers.
+**Eligibility:**
+
+1. Uptime ≥ 60% of random pings that month
+2. At least 1 real job processed during the month
+
+Pings are sent at **random times** to prevent cron-based cheating. The platform fee and redistributed amounts are published publicly each month on the central server.
 
 ---
 
