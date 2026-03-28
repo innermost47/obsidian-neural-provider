@@ -103,7 +103,7 @@ echo "✅ PyTorch installed"
 
 echo ""
 echo "📦 Installing provider dependencies..."
-pip install -r requirements_provider.txt --quiet
+pip install -r requirements.txt --quiet
 echo "✅ Dependencies installed"
 
 echo ""

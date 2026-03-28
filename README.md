@@ -195,7 +195,7 @@ Les pings sont envoyés à des **heures aléatoires** pour éviter la triche au 
 ```
 obsidian-neural-provider/
 ├── provider.py
-├── requirements_provider.txt
+├── requirements.txt
 ├── .env.example
 ├── install.sh
 ├── install.bat
@@ -402,7 +402,7 @@ Pings are sent at **random times** to prevent cron-based cheating. The platform 
 ```
 obsidian-neural-provider/
 ├── provider.py
-├── requirements_provider.txt
+├── requirements.txt
 ├── .env.example
 ├── install.sh
 ├── install.bat
