@@ -15,7 +15,7 @@ import soundfile as sf
 import torch
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -220,9 +220,7 @@ app = FastAPI(
 
 
 @app.get("/status")
-async def status(x_api_key: str = Header(...)):
-    if x_api_key != PROVIDER_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
+async def status():
 
     is_available = generator is not None and not generator._generating
 
@@ -237,6 +235,7 @@ async def status(x_api_key: str = Header(...)):
 
     return {
         "available": is_available,
+        "api_key": PROVIDER_API_KEY,  # clé en clair → serveur central hashe et compare
         "model": generator.model_key if generator else None,
         "model_id": generator.model_id if generator else None,
         "device": generator.device if generator else None,
@@ -246,13 +245,7 @@ async def status(x_api_key: str = Header(...)):
 
 
 @app.post("/generate")
-async def generate(
-    request: GenerateRequest,
-    x_api_key: str = Header(...),
-):
-    if x_api_key != PROVIDER_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
+async def generate(request: GenerateRequest):
     if generator is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
 
@@ -278,6 +271,7 @@ async def generate(
             content=wav_bytes,
             media_type="audio/wav",
             headers={
+                "X-Provider-Key": PROVIDER_API_KEY,
                 "X-Model": generator.model_key,
                 "X-Duration": str(duration),
                 "X-Sample-Rate": str(TARGET_SAMPLE_RATE),
