@@ -40,6 +40,17 @@ TARGET_SAMPLE_RATE = 44100
 generator: Optional["AudioGenerator"] = None
 
 
+class GenerateRequest(BaseModel):
+    prompt: str
+    duration: int = 10
+
+
+class VerifyRequest(BaseModel):
+    prompt: str
+    seed: int
+    duration: int = 5
+
+
 async def send_heartbeat():
     while True:
         await asyncio.sleep(HEARTBEAT_INTERVAL)
@@ -59,11 +70,6 @@ async def send_heartbeat():
             print(f"💓 Heartbeat sent")
         except Exception as e:
             print(f"⚠️  Heartbeat failed: {e}")
-
-
-class GenerateRequest(BaseModel):
-    prompt: str
-    duration: int = 10
 
 
 class AudioGenerator:
@@ -204,6 +210,71 @@ class AudioGenerator:
         print(f"📦 WAV ready: {len(wav_bytes) / 1024:.1f} KB")
         return wav_bytes
 
+    def generate_with_seed(self, prompt: str, duration: int, seed: int) -> bytes:
+        with self._lock:
+            self._generating = True
+            try:
+                return self._generate_with_seed(prompt, duration, seed)
+            finally:
+                self._generating = False
+
+    def _generate_with_seed(self, prompt: str, duration: int, seed: int) -> bytes:
+        duration = max(MIN_DURATION, min(10, duration))
+        num_inference_steps = 8 if self.is_small else 50
+        cfg_scale = 1.0 if self.is_small else 7.0
+
+        gen = torch.Generator(device=self.device).manual_seed(seed)
+
+        print(f"🔍 Verify generation: '{prompt[:60]}' | seed={seed} | {duration}s")
+        t0 = time.time()
+
+        result = self.pipeline(
+            prompt,
+            negative_prompt="Low quality, distorted, noise",
+            num_inference_steps=num_inference_steps,
+            audio_end_in_s=duration,
+            num_waveforms_per_prompt=1,
+            generator=gen,
+            guidance_scale=cfg_scale,
+        )
+
+        print(f"✅ Verify done in {time.time() - t0:.1f}s")
+
+        audio = result.audios[0].float().cpu().numpy()
+
+        if self.sample_rate != TARGET_SAMPLE_RATE:
+            if len(audio.shape) > 1 and audio.shape[0] == 2:
+                audio = np.array(
+                    [
+                        librosa.resample(
+                            audio[0],
+                            orig_sr=self.sample_rate,
+                            target_sr=TARGET_SAMPLE_RATE,
+                        ),
+                        librosa.resample(
+                            audio[1],
+                            orig_sr=self.sample_rate,
+                            target_sr=TARGET_SAMPLE_RATE,
+                        ),
+                    ]
+                )
+            else:
+                audio = librosa.resample(
+                    audio, orig_sr=self.sample_rate, target_sr=TARGET_SAMPLE_RATE
+                )
+
+        max_val = np.max(np.abs(audio))
+        if max_val > 0:
+            audio = audio / max_val * 0.9
+
+        if len(audio.shape) > 1 and audio.shape[0] == 2:
+            audio = audio.T
+
+        buf = io.BytesIO()
+        sf.write(buf, audio, TARGET_SAMPLE_RATE, format="WAV")
+        buf.seek(0)
+        return buf.read()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -235,7 +306,7 @@ async def status():
 
     return {
         "available": is_available,
-        "api_key": PROVIDER_API_KEY,  # clé en clair → serveur central hashe et compare
+        "api_key": PROVIDER_API_KEY,
         "model": generator.model_key if generator else None,
         "model_id": generator.model_id if generator else None,
         "device": generator.device if generator else None,
@@ -280,6 +351,46 @@ async def generate(request: GenerateRequest):
     except Exception as e:
         print(f"❌ Generation error: {e}")
         raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+
+
+@app.post("/verify")
+async def verify(request: VerifyRequest):
+    if generator is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+
+    if generator._generating:
+        raise HTTPException(
+            status_code=503, detail="Already generating — try again later"
+        )
+
+    if not request.prompt or not request.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt is required")
+
+    duration = max(MIN_DURATION, min(10, request.duration))
+
+    try:
+        loop = asyncio.get_event_loop()
+
+        wav_bytes = await loop.run_in_executor(
+            None,
+            generator.generate_with_seed,
+            request.prompt,
+            duration,
+            request.seed,
+        )
+
+        return Response(
+            content=wav_bytes,
+            media_type="audio/wav",
+            headers={
+                "X-Provider-Key": PROVIDER_API_KEY,
+                "X-Seed": str(request.seed),
+                "X-Model": generator.model_key,
+            },
+        )
+    except Exception as e:
+        print(f"❌ Verify generation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Verification failed: {str(e)}")
 
 
 @app.get("/health")
