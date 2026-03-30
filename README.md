@@ -221,6 +221,42 @@ Combined with `public/finances`, you get a complete and transparent view of the 
 
 ---
 
+## Benchmarking
+
+Before joining the network, run the local benchmark to verify your GPU meets the minimum speed requirements.
+This test loads each model directly on your GPU, runs several generations, and reports your eligibility — no network call required.
+
+```bash
+python benchmark.py
+```
+
+To test a specific model only:
+
+```bash
+python benchmark.py --model stable-audio-open-small
+python benchmark.py --model stable-audio-open-1.0
+```
+
+Options:
+
+| Flag          | Description                                                            |
+| ------------- | ---------------------------------------------------------------------- |
+| `--model`     | `stable-audio-open-1.0`, `stable-audio-open-small`, or `all` (default) |
+| `--runs`      | Number of benchmark runs per model (default: 3)                        |
+| `--no-warmup` | Skip the warmup run                                                    |
+
+**Eligibility thresholds:**
+
+| Model                     | Max average time for 10s audio |
+| ------------------------- | ------------------------------ |
+| `stable-audio-open-1.0`   | 60s                            |
+| `stable-audio-open-small` | 20s                            |
+
+A provider scoring above threshold on both models is not eligible for the network.
+The benchmark also reports the **Real-Time Factor (RTF)**: a value above `x1.0` means your GPU generates audio faster than it plays.
+
+---
+
 ## Joining the network
 
 1. Check that you have the minimum required GPU

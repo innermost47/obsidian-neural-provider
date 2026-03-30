@@ -242,6 +242,9 @@ class AudioGenerator:
 
         audio = result.audios[0].float().cpu().numpy()
 
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         if self.sample_rate != TARGET_SAMPLE_RATE:
             if len(audio.shape) > 1 and audio.shape[0] == 2:
                 audio = np.array(
