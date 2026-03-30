@@ -12,12 +12,10 @@ import torch
 
 SUPPORTED_MODELS = {
     "stable-audio-open-1.0": "stabilityai/stable-audio-open-1.0",
-    "stable-audio-open-small": "stabilityai/stable-audio-open-small",
 }
 
 THRESHOLDS = {
     "stable-audio-open-1.0": 60,
-    "stable-audio-open-small": 20,
 }
 
 TEST_PROMPT = "Dark ambient drone, slow evolving texture, deep bass, 140 BPM"
@@ -44,12 +42,11 @@ def load_model(model_key: str, device: str):
     from diffusers import StableAudioPipeline
 
     model_id = SUPPORTED_MODELS[model_key]
-    is_small = "small" in model_key
 
     print(f"\n⚡ Loading {model_id} on {device}...")
     t0 = time.time()
 
-    if device == "cuda" and not is_small:
+    if device == "cuda":
         from diffusers import (
             BitsAndBytesConfig as DiffusersBitsAndBytesConfig,
             StableAudioDiTModel,
@@ -78,12 +75,6 @@ def load_model(model_key: str, device: str):
             torch_dtype=torch.float16,
             device_map="balanced",
         )
-    else:
-        pipeline = StableAudioPipeline.from_pretrained(
-            model_id,
-            torch_dtype=torch.float16,
-        )
-        pipeline = pipeline.to(device)
 
     sample_rate = pipeline.vae.sampling_rate
     elapsed = time.time() - t0
@@ -101,9 +92,9 @@ def unload_model(pipeline):
     print_vram("after unload")
 
 
-def run_generation(pipeline, sample_rate: int, device: str, is_small: bool) -> float:
-    num_inference_steps = 8 if is_small else 50
-    cfg_scale = 1.0 if is_small else 7.0
+def run_generation(pipeline, sample_rate: int, device: str) -> float:
+    num_inference_steps = 50
+    cfg_scale = 7.0
     seed = random.randint(0, 2**31 - 1)
     gen = torch.Generator(device=device).manual_seed(seed)
 
@@ -157,7 +148,6 @@ def run_generation(pipeline, sample_rate: int, device: str, is_small: bool) -> f
 
 def benchmark_model(model_key: str, runs: int, no_warmup: bool) -> Optional[dict]:
     device = get_device()
-    is_small = "small" in model_key
 
     print(f"\n{'='*55}")
     print(f"  Benchmarking: {model_key}")
@@ -174,7 +164,7 @@ def benchmark_model(model_key: str, runs: int, no_warmup: bool) -> Optional[dict
     if not no_warmup:
         print(f"\n🔥 Warmup (excluded from stats)...")
         try:
-            run_generation(pipeline, sample_rate, device, is_small)
+            run_generation(pipeline, sample_rate, device)
         except Exception as e:
             print(f"  ⚠️  Warmup failed: {e}")
 
@@ -182,7 +172,7 @@ def benchmark_model(model_key: str, runs: int, no_warmup: bool) -> Optional[dict
     for i in range(runs):
         print(f"  Run {i+1}/{runs}...")
         try:
-            t = run_generation(pipeline, sample_rate, device, is_small)
+            t = run_generation(pipeline, sample_rate, device)
             times.append(t)
         except Exception as e:
             print(f"    ❌ Failed: {e}")
@@ -238,15 +228,9 @@ def main():
         help="Benchmark runs per model (default: 3)",
     )
     parser.add_argument("--no-warmup", action="store_true", help="Skip warmup run")
-    parser.add_argument(
-        "--model",
-        choices=list(SUPPORTED_MODELS.keys()) + ["all"],
-        default="all",
-        help="Model to benchmark (default: all)",
-    )
     args = parser.parse_args()
 
-    models = list(SUPPORTED_MODELS.keys()) if args.model == "all" else [args.model]
+    models = list(SUPPORTED_MODELS.keys())
 
     print(f"\n{'='*55}")
     print(f"  OBSIDIAN Neural — Local GPU Benchmark")
@@ -267,7 +251,6 @@ def main():
         if r:
             results.append(r)
 
-    # Summary
     print(f"\n\n{'='*55}")
     print(f"  SUMMARY")
     print(f"{'='*55}")

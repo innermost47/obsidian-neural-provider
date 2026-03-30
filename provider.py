@@ -30,7 +30,6 @@ MODEL_KEY: str = os.getenv("MODEL", "stable-audio-open-1.0")
 
 SUPPORTED_MODELS = {
     "stable-audio-open-1.0": "stabilityai/stable-audio-open-1.0",
-    "stable-audio-open-small": "stabilityai/stable-audio-open-small",
 }
 
 MAX_DURATION = 30
@@ -82,16 +81,12 @@ class AudioGenerator:
         self._lock = threading.Lock()
         self._generating = False
 
-    @property
-    def is_small(self) -> bool:
-        return "small" in self.model_key
-
     def load(self):
         from diffusers import StableAudioPipeline
 
         print(f"⚡ Loading {self.model_id} on {self.device}...")
 
-        if self.device == "cuda" and not self.is_small:
+        if self.device == "cuda":
             from diffusers import (
                 BitsAndBytesConfig as DiffusersBitsAndBytesConfig,
                 StableAudioDiTModel,
@@ -120,12 +115,6 @@ class AudioGenerator:
                 torch_dtype=torch.float16,
                 device_map="balanced",
             )
-        elif self.device == "cuda" and self.is_small:
-            self.pipeline = StableAudioPipeline.from_pretrained(
-                self.model_id,
-                torch_dtype=torch.float16,
-            )
-            self.pipeline = self.pipeline.to(self.device)
         else:
             raise RuntimeError("No CUDA GPU available. CPU mode is not allowed.")
 
@@ -149,8 +138,8 @@ class AudioGenerator:
     def _generate(self, prompt: str, duration: int) -> bytes:
         duration = max(MIN_DURATION, min(MAX_DURATION, duration))
 
-        num_inference_steps = 8 if self.is_small else 50
-        cfg_scale = 1.0 if self.is_small else 7.0
+        num_inference_steps = 50
+        cfg_scale = 7.0
 
         seed = random.randint(0, 2**31 - 1)
         gen = torch.Generator(device=self.device).manual_seed(seed)
@@ -220,8 +209,8 @@ class AudioGenerator:
 
     def _generate_with_seed(self, prompt: str, duration: int, seed: int) -> bytes:
         duration = max(MIN_DURATION, min(10, duration))
-        num_inference_steps = 8 if self.is_small else 50
-        cfg_scale = 1.0 if self.is_small else 7.0
+        num_inference_steps = 50
+        cfg_scale = 7.0
 
         gen = torch.Generator(device=self.device).manual_seed(seed)
 
@@ -404,12 +393,6 @@ async def health():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="OBSIDIAN Neural GPU Provider Server")
     parser.add_argument("--key", default="", help="API key (overrides .env)")
-    parser.add_argument(
-        "--model",
-        default="",
-        choices=list(SUPPORTED_MODELS.keys()),
-        help="Model to use (overrides .env)",
-    )
     parser.add_argument("--port", type=int, default=0, help="Port (overrides .env)")
     parser.add_argument("--host", default="", help="Host (overrides .env)")
     parser.add_argument(
@@ -420,8 +403,6 @@ if __name__ == "__main__":
 
     if args.key:
         PROVIDER_API_KEY = args.key
-    if args.model:
-        MODEL_KEY = args.model
     if args.port:
         PORT = args.port
     if args.host:

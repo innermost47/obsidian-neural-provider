@@ -35,13 +35,13 @@ Subscription revenue is redistributed **equally** among all active providers eac
 
 ## Requirements
 
-| Component  | `stable-audio-open-1.0` | `stable-audio-open-small` |
-| ---------- | ----------------------- | ------------------------- |
-| NVIDIA GPU | RTX 3070+ (8 GB VRAM)   | RTX 3060+ (4 GB VRAM)     |
-| RAM        | 16 GB                   | 8 GB                      |
-| OS         | Windows / Linux / macOS | Windows / Linux / macOS   |
-| Python     | 3.10+                   | 3.10+                     |
-| CUDA       | 11.8+                   | 11.8+                     |
+| Component  | `stable-audio-open-1.0` |
+| ---------- | ----------------------- |
+| NVIDIA GPU | RTX 3070+ (8 GB VRAM)   |
+| RAM        | 16 GB                   |
+| OS         | Windows / Linux / macOS |
+| Python     | 3.10+                   |
+| CUDA       | 11.8+                   |
 
 > Apple Silicon (M1/M2/M3) supported via Metal.
 
@@ -91,7 +91,7 @@ HEARTBEAT_INTERVAL=300
 | -------------------- | ---------------------------------------------------------------- |
 | `PROVIDER_API_KEY`   | Key provided by the OBSIDIAN Neural admin — **never share this** |
 | `CENTRAL_SERVER_URL` | Central server URL                                               |
-| `MODEL`              | `stable-audio-open-1.0` or `stable-audio-open-small`             |
+| `MODEL`              | `stable-audio-open-1.0`                                          |
 | `HOST`               | Listening interface (0.0.0.0 = all)                              |
 | `PORT`               | Server port (default: 8000)                                      |
 | `HEARTBEAT_INTERVAL` | Heartbeat frequency in seconds (default: 300)                    |
@@ -110,17 +110,16 @@ python provider.py
 CLI arguments override `.env` if needed:
 
 ```bash
-python provider.py --key op_xxx --model stable-audio-open-small --port 8002 --server https://api.obsidian-neural.com
+python provider.py --key op_xxx --port 8002 --server https://api.obsidian-neural.com
 ```
 
 ---
 
 ## Models
 
-| Model                     | VRAM    | Quality | Speed (RTX 3070) | Download size |
-| ------------------------- | ------- | ------- | ---------------- | ------------- |
-| `stable-audio-open-1.0`   | ~7-8 GB | ⭐⭐⭐  | ~30-120s         | ~5 GB         |
-| `stable-audio-open-small` | ~3-4 GB | ⭐⭐    | ~5-15s           | ~1.5 GB       |
+| Model                   | VRAM    | Quality | Speed (RTX 3070) | Download size |
+| ----------------------- | ------- | ------- | ---------------- | ------------- |
+| `stable-audio-open-1.0` | ~7-8 GB | ⭐⭐⭐  | ~10-15s          | ~5 GB         |
 
 First launch downloads the model from HuggingFace. Subsequent launches are instant (cached model).
 
@@ -233,24 +232,21 @@ python benchmark.py
 To test a specific model only:
 
 ```bash
-python benchmark.py --model stable-audio-open-small
-python benchmark.py --model stable-audio-open-1.0
+python benchmark.py
 ```
 
 Options:
 
-| Flag          | Description                                                            |
-| ------------- | ---------------------------------------------------------------------- |
-| `--model`     | `stable-audio-open-1.0`, `stable-audio-open-small`, or `all` (default) |
-| `--runs`      | Number of benchmark runs per model (default: 3)                        |
-| `--no-warmup` | Skip the warmup run                                                    |
+| Flag          | Description                                     |
+| ------------- | ----------------------------------------------- |
+| `--runs`      | Number of benchmark runs per model (default: 3) |
+| `--no-warmup` | Skip the warmup run                             |
 
 **Eligibility thresholds:**
 
-| Model                     | Max average time for 10s audio |
-| ------------------------- | ------------------------------ |
-| `stable-audio-open-1.0`   | 60s                            |
-| `stable-audio-open-small` | 20s                            |
+| Model                   | Max average time for 10s audio |
+| ----------------------- | ------------------------------ |
+| `stable-audio-open-1.0` | 60s                            |
 
 A provider scoring above threshold on both models is not eligible for the network.
 The benchmark also reports the **Real-Time Factor (RTF)**: a value above `x1.0` means your GPU generates audio faster than it plays.

@@ -39,7 +39,6 @@ if errorlevel 1 (
     echo [ERROR] No NVIDIA GPU detected.
     echo         CPU mode is not allowed in the OBSIDIAN Neural provider network.
     echo         Minimum requirement: NVIDIA RTX 3070 ^(8GB VRAM^)
-    echo                           or NVIDIA RTX 3060 ^(4GB VRAM^) for the small model.
     echo.
     pause
     exit /b 1
@@ -109,10 +108,6 @@ echo     print^('[OK] CUDA available: ' + name^)
 echo     print^('[OK] VRAM: ' + str^(round^(vram, 1^)^) + ' GB'^)
 echo     if vram ^< 4:
 echo         print^('[ERROR] Less than 4GB VRAM -- GPU not supported'^)
-echo     elif vram ^< 8:
-echo         print^('[INFO] 4-8GB VRAM -- set MODEL=stable-audio-open-small in .env'^)
-echo     else:
-echo         print^('[INFO] 8GB+ VRAM -- both models supported'^)
 echo else:
 echo     print^('[ERROR] CUDA not available -- check your drivers'^)
 ) > _check_gpu.py

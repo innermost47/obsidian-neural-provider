@@ -58,7 +58,7 @@ if [ "$HAS_CUDA" = false ] && [ "$HAS_ROCM" = false ] && [ "$HAS_METAL" = false 
     echo ""
     echo "❌ No GPU detected."
     echo "   CPU mode is not allowed in the OBSIDIAN Neural provider network."
-    echo "   Minimum: NVIDIA RTX 3070 (8GB) or RTX 3060 (4GB) for the small model."
+    echo "   Minimum: NVIDIA RTX 3070 (8GB)."
     echo ""
     exit 1
 fi
@@ -114,11 +114,9 @@ if torch.cuda.is_available():
     vram = torch.cuda.get_device_properties(0).total_memory / 1024**3
     print(f'   VRAM: {vram:.1f} GB')
     if vram < 4:
-        print('⚠️  Less than 4GB VRAM — even small model may not fit')
-    elif vram < 8:
-        print('ℹ️  4-8GB VRAM — use --model stable-audio-open-small')
+        print('⚠️  Less than 4GB VRAM — model may not fit')
     else:
-        print('ℹ️  8GB+ VRAM — both models supported')
+        print('ℹ️  8GB+ VRAM — model supported')
 elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
     print('✅ Apple MPS available')
 else:
@@ -137,9 +135,6 @@ echo "  source venv/bin/activate"
 echo ""
 echo "  # Full model (RTX 3070+, 8GB VRAM):"
 echo "  python provider.py --key YOUR_API_KEY"
-echo ""
-echo "  # Small model (RTX 3060+, 4GB VRAM):"
-echo "  python provider.py --key YOUR_API_KEY --model stable-audio-open-small"
 echo ""
 echo "  Your API key is provided by the OBSIDIAN Neural admin."
 echo "=================================================="
