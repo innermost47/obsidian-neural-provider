@@ -16,7 +16,7 @@ import torch
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, PlainTextResponse
 from pydantic import BaseModel
 
 load_dotenv()
@@ -388,6 +388,11 @@ async def verify(request: VerifyRequest):
 @app.get("/health")
 async def health():
     return {"status": "ok", "model_loaded": generator is not None}
+
+
+@app.get("/", response_class=PlainTextResponse)
+async def root():
+    return "Service OK"
 
 
 if __name__ == "__main__":
