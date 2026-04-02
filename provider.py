@@ -84,7 +84,7 @@ async def connect_to_central_registry():
             print(f"🔌 Attempting to connect to the central registry: {uri}...")
             async with websockets.connect(
                 uri,
-                extra_headers=headers,
+                additional_headers=headers,
                 ping_interval=20,
                 ping_timeout=10,
             ) as websocket:
