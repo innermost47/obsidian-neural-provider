@@ -105,14 +105,14 @@ def connect_to_central_registry():
             time.sleep(10)
 
 
-async def send_heartbeat():
+def send_heartbeat_sync():
     while True:
-        await asyncio.sleep(HEARTBEAT_INTERVAL)
+        time.sleep(HEARTBEAT_INTERVAL)
         if not CENTRAL_SERVER_URL or not PROVIDER_API_KEY:
             continue
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(
+            with httpx.Client(timeout=10.0) as client:
+                client.post(
                     f"{CENTRAL_SERVER_URL.rstrip('/')}/api/v1/providers/heartbeat",
                     headers={"X-API-Key": PROVIDER_API_KEY},
                     json={
@@ -328,9 +328,10 @@ async def lifespan(app: FastAPI):
     ws_thread = threading.Thread(target=connect_to_central_registry, daemon=True)
     ws_thread.start()
 
-    heartbeat_task = asyncio.create_task(send_heartbeat())
+    hb_thread = threading.Thread(target=send_heartbeat_sync, daemon=True)
+    hb_thread.start()
+
     yield
-    heartbeat_task.cancel()
 
 
 app = FastAPI(
@@ -503,4 +504,6 @@ if __name__ == "__main__":
     print(f"  Server : {CENTRAL_SERVER_URL or 'not configured'}")
     print(f"{'='*55}\n")
 
-    uvicorn.run(app, host=HOST, port=PORT, log_level="info")
+    uvicorn.Config(app, host=HOST, port=PORT, log_level="info", backlog=2048)
+
+    uvicorn.run(app, host=HOST, port=PORT, log_level="info", backlog=2048)
