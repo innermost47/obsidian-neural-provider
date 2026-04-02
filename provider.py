@@ -15,7 +15,7 @@ import soundfile as sf
 import torch
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException, Header, Depends, status as fastapi_status
 from fastapi.responses import Response, PlainTextResponse
 from pydantic import BaseModel
 
@@ -54,7 +54,7 @@ class VerifyRequest(BaseModel):
 async def verify_server_identity(x_api_key: str = Header(None)):
     if not SHARED_SECRET or x_api_key != SHARED_SECRET:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=fastapi_status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized: Invalid or missing Server Key",
         )
     return x_api_key
