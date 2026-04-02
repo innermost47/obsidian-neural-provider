@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Header, Depends, status as fastapi_status
 from fastapi.responses import Response, PlainTextResponse
 from pydantic import BaseModel
+import websockets
 
 load_dotenv()
 
@@ -58,6 +59,39 @@ async def verify_server_identity(x_api_key: str = Header(None)):
             detail="Unauthorized",
         )
     return x_api_key
+
+
+async def connect_to_central_registry():
+    if not CENTRAL_SERVER_URL:
+        print("⚠️ WebSocket: CENTRAL_SERVER_URL not configured, skip.")
+        return
+
+    ws_url = (
+        CENTRAL_SERVER_URL.replace("http://", "ws://")
+        .replace("https://", "wss://")
+        .rstrip("/")
+    )
+    uri = f"{ws_url}/api/v1/providers/connect"
+
+    headers = {"X-Provider-Key": PROVIDER_API_KEY, "X-Model": MODEL_KEY}
+
+    while True:
+        try:
+            print(f"🔌 Attempting to connect to the central registry: {uri}...")
+            async with websockets.connect(
+                uri,
+                extra_headers=headers,
+                ping_interval=20,
+                ping_timeout=10,
+            ) as websocket:
+                print("✅ Connected to the central server (Active presence)")
+                async for message in websocket:
+                    print(f"📩 Server message: {message}")
+
+        except Exception as e:
+            print(f"❌ Register disconnection (Error: {e})")
+            print("🔄 Attempting to reconnect in 10 seconds...")
+            await asyncio.sleep(10)
 
 
 async def send_heartbeat():
@@ -280,8 +314,11 @@ class AudioGenerator:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    asyncio.create_task(send_heartbeat())
+    connection_task = asyncio.create_task(connect_to_central_registry())
+    heartbeat_task = asyncio.create_task(send_heartbeat())
     yield
+    connection_task.cancel()
+    heartbeat_task.cancel()
 
 
 app = FastAPI(
