@@ -75,7 +75,7 @@ async def connect_to_central_registry():
         .replace("https://", "wss://")
         .rstrip("/")
     )
-    uri = f"{ws_url}/api/v1/providers/connect"
+    uri = f"{ws_url}/providers/connect"
 
     headers = {"X-Provider-Key": PROVIDER_API_KEY, "X-Model": MODEL_KEY}
 
