@@ -19,6 +19,10 @@ from fastapi import FastAPI, HTTPException, Header, Depends, status as fastapi_s
 from fastapi.responses import Response, PlainTextResponse
 from pydantic import BaseModel
 import websockets
+import sys
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 load_dotenv()
 
