@@ -65,7 +65,7 @@ async def verify_server_identity(x_api_key: str = Header(None)):
     return x_api_key
 
 
-async def connect_to_central_registry():
+def connect_to_central_registry():
     if not CENTRAL_SERVER_URL:
         print("⚠️ WebSocket: CENTRAL_SERVER_URL not configured, skip.")
         return
@@ -79,23 +79,30 @@ async def connect_to_central_registry():
 
     headers = {"X-Provider-Key": PROVIDER_API_KEY, "X-Model": MODEL_KEY}
 
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     while True:
         try:
             print(f"🔌 Attempting to connect to the central registry: {uri}...")
-            async with websockets.connect(
-                uri,
-                additional_headers=headers,
-                ping_interval=20,
-                ping_timeout=10,
-            ) as websocket:
-                print("✅ Connected to the central server (Active presence)")
-                async for message in websocket:
-                    print(f"📩 Server message: {message}")
+            websocket = loop.run_until_complete(
+                websockets.connect(
+                    uri,
+                    additional_headers=headers,
+                    ping_interval=20,
+                    ping_timeout=60,
+                )
+            )
+            print("✅ Connected to the central server (Active presence)")
+
+            while True:
+                message = loop.run_until_complete(websocket.recv())
+                print(f"📩 Server message: {message}")
 
         except Exception as e:
             print(f"❌ Register disconnection (Error: {e})")
             print("🔄 Attempting to reconnect in 10 seconds...")
-            await asyncio.sleep(10)
+            time.sleep(10)
 
 
 async def send_heartbeat():
@@ -318,10 +325,11 @@ class AudioGenerator:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    connection_task = asyncio.create_task(connect_to_central_registry())
+    ws_thread = threading.Thread(target=connect_to_central_registry, daemon=True)
+    ws_thread.start()
+
     heartbeat_task = asyncio.create_task(send_heartbeat())
     yield
-    connection_task.cancel()
     heartbeat_task.cancel()
 
 
