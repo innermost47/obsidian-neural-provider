@@ -55,7 +55,7 @@ async def verify_server_identity(x_api_key: str = Header(None)):
     if not SHARED_SECRET or x_api_key != SHARED_SECRET:
         raise HTTPException(
             status_code=fastapi_status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized: Invalid or missing Server Key",
+            detail="Unauthorized",
         )
     return x_api_key
 
