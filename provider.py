@@ -8,6 +8,7 @@ import time
 import threading
 from contextlib import asynccontextmanager
 from typing import Optional
+import hashlib
 import httpx
 import librosa
 import numpy as np
@@ -18,6 +19,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Header, Depends, status as fastapi_status
 from fastapi.responses import Response, PlainTextResponse
 from pydantic import BaseModel
+import subprocess
 
 load_dotenv()
 
@@ -51,6 +53,35 @@ class VerifyRequest(BaseModel):
     duration: int = 5
 
 
+class IntegrityRequest(BaseModel):
+    nonce: str
+
+
+def calculate_integrity_hash(nonce: str = "", directory="."):
+    sha256_hash = hashlib.sha256()
+    sha256_hash.update(nonce.encode("utf-8"))
+    for root, _, files in os.walk(directory):
+        for names in sorted(files):
+            if names.endswith(".py"):
+                filepath = os.path.join(root, names)
+                with open(filepath, "rb") as f:
+                    while chunk := f.read(8192):
+                        sha256_hash.update(chunk)
+
+    return sha256_hash.hexdigest()
+
+
+def get_docker_image_digest():
+    try:
+        cmd = "docker inspect --format='{{index .RepoDigests 0}}' $(hostname)"
+        return subprocess.check_output(cmd, shell=True).decode().strip()
+    except:
+        return "unknown"
+
+
+DOCKER_DIGEST = get_docker_image_digest()
+
+
 async def verify_server_identity(x_api_key: str = Header(None)):
     if not SHARED_SECRET or x_api_key != SHARED_SECRET:
         raise HTTPException(
@@ -62,8 +93,8 @@ async def verify_server_identity(x_api_key: str = Header(None)):
 
 async def send_heartbeat():
     while True:
-        await asyncio.sleep(HEARTBEAT_INTERVAL)
         if not CENTRAL_SERVER_URL or not PROVIDER_API_KEY:
+            await asyncio.sleep(10)
             continue
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -74,11 +105,14 @@ async def send_heartbeat():
                         "available": generator is not None
                         and not generator._generating,
                         "model": generator.model_key if generator else None,
+                        "docker_digest": DOCKER_DIGEST,
                     },
                 )
-            print(f"💓 Heartbeat sent")
+            print(f"💓 Heartbeat sent...")
         except Exception as e:
-            print(f"⚠️  Heartbeat failed: {e}")
+            print(f"⚠️ Heartbeat failed: {e}")
+
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
 
 
 class AudioGenerator:
@@ -293,8 +327,12 @@ app = FastAPI(
 
 
 @app.get("/status", dependencies=[Depends(verify_server_identity)])
-async def status():
+async def status(nonce: str = "default_nonce"):
     is_available = generator is not None and not generator._generating
+
+    t0 = time.time()
+    integrity_proof = calculate_integrity_hash(nonce=nonce)
+    calc_duration = (time.time() - t0) * 1000
 
     vram_info = {}
     if torch.cuda.is_available():
@@ -308,6 +346,10 @@ async def status():
     return {
         "available": is_available,
         "api_key": PROVIDER_API_KEY,
+        "integrity_hash": integrity_proof,
+        "nonce_queried": nonce,
+        "docker_digest": DOCKER_DIGEST,
+        "verification_speed_ms": round(calc_duration, 2),
         "model": generator.model_key if generator else None,
         "model_id": generator.model_id if generator else None,
         "device": generator.device if generator else None,
