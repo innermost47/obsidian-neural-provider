@@ -15,7 +15,7 @@ import soundfile as sf
 import torch
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.responses import Response, PlainTextResponse
 from pydantic import BaseModel
 
@@ -24,6 +24,7 @@ load_dotenv()
 PROVIDER_API_KEY: str = os.getenv("PROVIDER_API_KEY", "")
 CENTRAL_SERVER_URL: str = os.getenv("CENTRAL_SERVER_URL", "")
 HEARTBEAT_INTERVAL: int = int(os.getenv("HEARTBEAT_INTERVAL", "300"))
+SHARED_SECRET = os.getenv("SERVER_TO_PROVIDER_KEY")
 HOST: str = os.getenv("HOST", "0.0.0.0")
 PORT: int = int(os.getenv("PORT", "8000"))
 MODEL_KEY: str = os.getenv("MODEL", "stable-audio-open-1.0")
@@ -48,6 +49,15 @@ class VerifyRequest(BaseModel):
     prompt: str
     seed: int
     duration: int = 5
+
+
+async def verify_server_identity(x_api_key: str = Header(None)):
+    if not SHARED_SECRET or x_api_key != SHARED_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized: Invalid or missing Server Key",
+        )
+    return x_api_key
 
 
 async def send_heartbeat():
@@ -282,9 +292,8 @@ app = FastAPI(
 )
 
 
-@app.get("/status")
+@app.get("/status", dependencies=[Depends(verify_server_identity)])
 async def status():
-
     is_available = generator is not None and not generator._generating
 
     vram_info = {}
@@ -307,7 +316,7 @@ async def status():
     }
 
 
-@app.post("/generate")
+@app.post("/generate", dependencies=[Depends(verify_server_identity)])
 async def generate(request: GenerateRequest):
     if generator is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
@@ -345,7 +354,7 @@ async def generate(request: GenerateRequest):
         raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
 
 
-@app.post("/verify")
+@app.post("/verify", dependencies=[Depends(verify_server_identity)])
 async def verify(request: VerifyRequest):
     if generator is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
@@ -385,7 +394,7 @@ async def verify(request: VerifyRequest):
         raise HTTPException(status_code=500, detail=f"Verification failed: {str(e)}")
 
 
-@app.get("/health")
+@app.get("/health", dependencies=[Depends(verify_server_identity)])
 async def health():
     return {"status": "ok", "model_loaded": generator is not None}
 
