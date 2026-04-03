@@ -3,7 +3,6 @@ import asyncio
 import gc
 import io
 import os
-import random
 import time
 import threading
 from contextlib import asynccontextmanager
@@ -20,6 +19,8 @@ from fastapi.responses import Response, PlainTextResponse
 from pydantic import BaseModel
 import websockets
 import sys
+import hashlib
+
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -58,6 +59,16 @@ async def verify_server_identity(x_api_key: str = Header(None)):
             detail="Unauthorized",
         )
     return x_api_key
+
+
+def _compute_self_hash() -> str:
+    try:
+        with open(__file__, "rb") as f:
+            file_content = f.read()
+        identity = f"{PROVIDER_API_KEY}:{SHARED_SECRET}".encode()
+        return hashlib.sha256(file_content + identity).hexdigest()
+    except Exception:
+        return "unknown"
 
 
 def connect_to_central_registry():
@@ -247,6 +258,8 @@ class AudioGenerator:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global SELF_HASH
+    SELF_HASH = _compute_self_hash()
     ws_thread = threading.Thread(target=connect_to_central_registry, daemon=True)
     ws_thread.start()
 
@@ -284,6 +297,7 @@ async def status():
         "model_id": generator.model_id if generator else None,
         "device": generator.device if generator else None,
         "generating": generator._generating if generator else False,
+        "X-Provider-Hash": SELF_HASH,
         **vram_info,
     }
 
@@ -319,6 +333,7 @@ async def generate(request: GenerateRequest):
                 "X-Duration": str(duration),
                 "X-Sample-Rate": str(TARGET_SAMPLE_RATE),
                 "X-Seed": str(request.seed),
+                "X-Provider-Hash": SELF_HASH,
             },
         )
     except Exception as e:
@@ -328,7 +343,11 @@ async def generate(request: GenerateRequest):
 
 @app.get("/health", dependencies=[Depends(verify_server_identity)])
 async def health():
-    return {"status": "ok", "model_loaded": generator is not None}
+    return {
+        "status": "ok",
+        "model_loaded": generator is not None,
+        "X-Provider-Hash": SELF_HASH,
+    }
 
 
 @app.get("/", response_class=PlainTextResponse)
