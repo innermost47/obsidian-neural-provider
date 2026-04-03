@@ -39,7 +39,7 @@ SUPPORTED_MODELS = {
 }
 
 MAX_DURATION = 30
-MIN_DURATION = 4
+MIN_DURATION = 2
 TARGET_SAMPLE_RATE = 44100
 
 generator: Optional["AudioGenerator"] = None
@@ -192,7 +192,6 @@ class AudioGenerator:
 
         gen = torch.Generator(device=self.device).manual_seed(seed)
 
-        print(f"🔍 Verify generation: '{prompt[:60]}' | seed={seed} | {duration}s")
         t0 = time.time()
 
         result = self.pipeline(
