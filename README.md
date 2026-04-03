@@ -161,7 +161,7 @@ Example with 180€ and 6 providers:
 
 **Eligibility:**
 
-1. Uptime ≥ 60% of random pings that month
+1. Uptime ≥ 80% of random pings that month
 2. At least 1 real job processed during the month
 
 Pings are sent at **random times** to prevent cron-based cheating. The platform fee and redistributed amounts are published publicly each month on the central server.
