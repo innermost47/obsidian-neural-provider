@@ -125,7 +125,10 @@ def send_heartbeat_sync():
             with httpx.Client(timeout=10.0) as client:
                 client.post(
                     f"{CENTRAL_SERVER_URL.rstrip('/')}/api/v1/providers/heartbeat",
-                    headers={"X-API-Key": PROVIDER_API_KEY},
+                    headers={
+                        "X-API-Key": PROVIDER_API_KEY,
+                        "X-Provider-Hash": SELF_HASH,
+                    },
                     json={
                         "available": generator is not None
                         and not generator._generating,
