@@ -64,7 +64,9 @@ async def verify_server_identity(x_api_key: str = Header(None)):
 def _compute_self_hash() -> str:
     try:
         with open(__file__, "rb") as f:
-            content = f.read().replace(b"\r\n", b"\n")
+            content = f.read()
+        content = content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        content = content.replace(b" ", b"").replace(b"\n", b"").replace(b"\t", b"")
         api_key_hashed = hashlib.sha256(PROVIDER_API_KEY.encode()).hexdigest()
         identity = f"{api_key_hashed}:{SHARED_SECRET}".encode()
         return hashlib.sha256(content + identity).hexdigest()
