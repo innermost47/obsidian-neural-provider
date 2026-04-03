@@ -64,10 +64,10 @@ async def verify_server_identity(x_api_key: str = Header(None)):
 def _compute_self_hash() -> str:
     try:
         with open(__file__, "rb") as f:
-            file_content = f.read()
+            content = f.read().replace(b"\r\n", b"\n")
         api_key_hashed = hashlib.sha256(PROVIDER_API_KEY.encode()).hexdigest()
         identity = f"{api_key_hashed}:{SHARED_SECRET}".encode()
-        return hashlib.sha256(file_content + identity).hexdigest()
+        return hashlib.sha256(content + identity).hexdigest()
     except Exception:
         return "unknown"
 
