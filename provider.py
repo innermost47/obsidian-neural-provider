@@ -15,7 +15,7 @@ import torch
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Header, Depends, status as fastapi_status
-from fastapi.responses import Response, PlainTextResponse
+from fastapi.responses import Response, PlainTextResponse, JSONResponse
 from pydantic import BaseModel
 import websockets
 import sys
@@ -290,7 +290,6 @@ app = FastAPI(
 @app.get("/status", dependencies=[Depends(verify_server_identity)])
 async def status():
     is_available = generator is not None and not generator._generating
-
     vram_info = {}
     if torch.cuda.is_available():
         vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
@@ -299,17 +298,18 @@ async def status():
             "vram_total_gb": round(vram_total, 1),
             "vram_used_gb": round(vram_used, 1),
         }
-
-    return {
-        "available": is_available,
-        "api_key": PROVIDER_API_KEY,
-        "model": generator.model_key if generator else None,
-        "model_id": generator.model_id if generator else None,
-        "device": generator.device if generator else None,
-        "generating": generator._generating if generator else False,
-        "X-Provider-Hash": SELF_HASH,
-        **vram_info,
-    }
+    return JSONResponse(
+        content={
+            "available": is_available,
+            "api_key": PROVIDER_API_KEY,
+            "model": generator.model_key if generator else None,
+            "model_id": generator.model_id if generator else None,
+            "device": generator.device if generator else None,
+            "generating": generator._generating if generator else False,
+            **vram_info,
+        },
+        headers={"X-Provider-Hash": SELF_HASH},
+    )
 
 
 @app.post("/generate", dependencies=[Depends(verify_server_identity)])
@@ -353,11 +353,13 @@ async def generate(request: GenerateRequest):
 
 @app.get("/health", dependencies=[Depends(verify_server_identity)])
 async def health():
-    return {
-        "status": "ok",
-        "model_loaded": generator is not None,
-        "X-Provider-Hash": SELF_HASH,
-    }
+    return JSONResponse(
+        content={
+            "status": "ok",
+            "model_loaded": generator is not None,
+        },
+        headers={"X-Provider-Hash": SELF_HASH},
+    )
 
 
 @app.get("/", response_class=PlainTextResponse)
