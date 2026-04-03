@@ -83,7 +83,11 @@ def connect_to_central_registry():
     )
     uri = f"{ws_url}/api/v1/providers/connect"
 
-    headers = {"X-Provider-Key": PROVIDER_API_KEY, "X-Model": MODEL_KEY}
+    headers = {
+        "X-Provider-Key": PROVIDER_API_KEY,
+        "X-Model": MODEL_KEY,
+        "X-Provider-Hash": SELF_HASH,
+    }
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
