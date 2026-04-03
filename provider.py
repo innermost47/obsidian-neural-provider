@@ -65,7 +65,8 @@ def _compute_self_hash() -> str:
     try:
         with open(__file__, "rb") as f:
             file_content = f.read()
-        identity = f"{PROVIDER_API_KEY}:{SHARED_SECRET}".encode()
+        api_key_hashed = hashlib.sha256(PROVIDER_API_KEY.encode()).hexdigest()
+        identity = f"{api_key_hashed}:{SHARED_SECRET}".encode()
         return hashlib.sha256(file_content + identity).hexdigest()
     except Exception:
         return "unknown"
