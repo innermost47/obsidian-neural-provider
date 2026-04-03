@@ -191,32 +191,13 @@ obsidian-neural-provider/
 
 ---
 
-## Public Statistics
+### Public Data Dashboard
 
-The central server exposes the number of active subscribers in real time:
+All network data — active subscribers, monthly redistribution history, and proof-of-generation logs — is published live at:
 
-```
-GET https://api.obsidian-neural.com/api/v1/public/stats
-```
+**[obsidian-neural.com/public.html](https://obsidian-neural.com/public.html)**
 
-Response:
-
-```json
-{
-  "paying_users": 42,
-  "updated_at": "2026-03-28T14:32:00Z"
-}
-```
-
-This endpoint is public and requires no authentication. It allows every provider to verify the platform's growth and estimate their monthly share.
-
-Combined with `public/finances`, you get a complete and transparent view of the network's financial health:
-
-| Source                     | Data                                  |
-| -------------------------- | ------------------------------------- |
-| `/api/v1/public/stats`     | Active subscribers count in real time |
-| `/api/v1/public/finances`  | Monthly redistribution history        |
-| `/api/v1/public/ownership` | Proof of generation ownership         |
+No authentication required. No data is ever deleted.
 
 ---
 
