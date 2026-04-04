@@ -48,6 +48,7 @@ desktop.ini
 tmp/
 temp/
 
-cosign*
+cosign.key
+cosign.exe
 
 release.bat
