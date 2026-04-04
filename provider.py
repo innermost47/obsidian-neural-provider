@@ -35,7 +35,7 @@ SHARED_SECRET = os.getenv("SERVER_TO_PROVIDER_KEY")
 HOST: str = os.getenv("HOST", "0.0.0.0")
 PORT: int = int(os.getenv("PORT", "8000"))
 MODEL_KEY: str = os.getenv("MODEL", "stable-audio-open-1.0")
-CREDENTIALS_FILE = "/data/credentials.json"
+CREDENTIALS_FILE = os.getenv("CREDENTIALS_FILE", "/data/credentials.json")
 SUPPORTED_MODELS = {
     "stable-audio-open-1.0": "stabilityai/stable-audio-open-1.0",
 }
