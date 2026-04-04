@@ -82,22 +82,9 @@ sudo systemctl restart docker
 
 ```bash
 docker run -d \
-  -e OBSIDIAN_TOKEN=your_activation_token \
-  -e CENTRAL_SERVER_URL=https://api.obsidian-neural.com \
-  --gpus all \
-  -p 8000:8000 \
-  -v obsidian_data:/data \
-  --restart unless-stopped \
-  innermost47/obsidian-neural-provider:latest
-```
-
-**Windows (PowerShell):**
-
-```bash
-docker run -d \
   --name obsidian-provider \
   -e OBSIDIAN_TOKEN=your_activation_token \
-  -e CENTRAL_SERVER_URL=https://api.obsidian-neural.com \
+  -e CENTRAL_SERVER_URL=https:///ai-harmony.duckdns.org \
   --gpus all \
   -p 8000:8000 \
   -v obsidian_data:/data \
