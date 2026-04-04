@@ -3,12 +3,10 @@ import asyncio
 import gc
 import io
 import os
-import random
 import time
 import threading
 from contextlib import asynccontextmanager
 from typing import Optional
-import hashlib
 import httpx
 import librosa
 import numpy as np
@@ -17,9 +15,15 @@ import torch
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Header, Depends, status as fastapi_status
-from fastapi.responses import Response, PlainTextResponse
-from pydantic import BaseModel
-import subprocess
+from fastapi.responses import Response, PlainTextResponse, JSONResponse
+from pydantic import BaseModel, field_validator
+import websockets
+import sys
+import hashlib
+
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 load_dotenv()
 
@@ -36,50 +40,53 @@ SUPPORTED_MODELS = {
 }
 
 MAX_DURATION = 30
-MIN_DURATION = 4
+MIN_DURATION = 2
 TARGET_SAMPLE_RATE = 44100
 
 generator: Optional["AudioGenerator"] = None
 
 
-class GenerateRequest(BaseModel):
-    prompt: str
-    duration: int = 10
+class ProcessRequest(BaseModel):
+    action: str
+    prompt: Optional[str] = None
+    duration: Optional[int] = 10
+    seed: Optional[int] = None
 
+    class Config:
+        extra = "forbid"
 
-class VerifyRequest(BaseModel):
-    prompt: str
-    seed: int
-    duration: int = 5
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, v):
+        if v not in ("health", "status", "generate"):
+            raise ValueError("action must be 'health', 'status', or 'generate'")
+        return v
 
+    @field_validator("duration")
+    @classmethod
+    def validate_duration(cls, v, info):
+        if info.data.get("action") == "generate" and v is not None:
+            if not (MIN_DURATION <= v <= MAX_DURATION):
+                raise ValueError(
+                    f"duration must be between {MIN_DURATION} and {MAX_DURATION}"
+                )
+        return v
 
-class IntegrityRequest(BaseModel):
-    nonce: str
+    @field_validator("prompt")
+    @classmethod
+    def validate_prompt(cls, v, info):
+        if info.data.get("action") == "generate":
+            if not v or not v.strip():
+                raise ValueError("prompt is required for generate action")
+        return v
 
-
-def calculate_integrity_hash(nonce: str = "", directory="."):
-    sha256_hash = hashlib.sha256()
-    sha256_hash.update(nonce.encode("utf-8"))
-    for root, _, files in os.walk(directory):
-        for names in sorted(files):
-            if names.endswith(".py"):
-                filepath = os.path.join(root, names)
-                with open(filepath, "rb") as f:
-                    while chunk := f.read(8192):
-                        sha256_hash.update(chunk)
-
-    return sha256_hash.hexdigest()
-
-
-def get_docker_image_digest():
-    try:
-        cmd = "docker inspect --format='{{index .RepoDigests 0}}' $(hostname)"
-        return subprocess.check_output(cmd, shell=True).decode().strip()
-    except:
-        return "unknown"
-
-
-DOCKER_DIGEST = get_docker_image_digest()
+    @field_validator("seed")
+    @classmethod
+    def validate_seed(cls, v, info):
+        if v is not None:
+            if not (0 <= v <= 2**31 - 1):
+                raise ValueError("seed must be between 0 and 2147483647")
+        return v
 
 
 async def verify_server_identity(x_api_key: str = Header(None)):
@@ -91,28 +98,99 @@ async def verify_server_identity(x_api_key: str = Header(None)):
     return x_api_key
 
 
-async def send_heartbeat():
+async def activate_with_token(token: str, central_url: str) -> dict:
+    print("🔑 Activating provider with one-time token...")
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            response = await client.post(
+                f"{central_url.rstrip('/')}/api/v1/providers/activate",
+                json={"token": token},
+            )
+            if response.status_code != 200:
+                print(f"❌ Activation failed: {response.text}")
+                sys.exit(1)
+            data = response.json()
+            print(f"✅ Activated as: {data['provider_name']}")
+            return data
+        except Exception as e:
+            print(f"❌ Cannot reach central server: {e}")
+            sys.exit(1)
+
+
+def _compute_self_hash() -> str:
+    try:
+        with open(__file__, "rb") as f:
+            content = f.read()
+        content = content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        content = content.replace(b" ", b"").replace(b"\n", b"").replace(b"\t", b"")
+        api_key_hashed = hashlib.sha256(PROVIDER_API_KEY.encode()).hexdigest()
+        identity = f"{api_key_hashed}:{SHARED_SECRET}".encode()
+        return hashlib.sha256(content + identity).hexdigest()
+    except Exception:
+        return "unknown"
+
+
+def connect_to_central_registry():
+    if not CENTRAL_SERVER_URL:
+        print("⚠️ WebSocket: CENTRAL_SERVER_URL not configured, skip.")
+        return
+
+    ws_url = (
+        CENTRAL_SERVER_URL.replace("http://", "ws://")
+        .replace("https://", "wss://")
+        .rstrip("/")
+    )
+    uri = f"{ws_url}/api/v1/providers/connect"
+
+    headers = {
+        "X-Provider-Key": PROVIDER_API_KEY,
+        "X-Model": MODEL_KEY,
+        "X-Provider-Hash": SELF_HASH,
+    }
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     while True:
+        try:
+            print(f"🔌 Attempting to connect to the central registry: {uri}...")
+            websocket = loop.run_until_complete(
+                websockets.connect(
+                    uri,
+                    additional_headers=headers,
+                    ping_interval=20,
+                    ping_timeout=60,
+                )
+            )
+            print("✅ Connected to the central server (Active presence)")
+
+            while True:
+                loop.run_until_complete(websocket.recv())
+
+        except Exception as e:
+            print(f"❌ Register disconnection (Error: {e})")
+            print("🔄 Attempting to reconnect in 10 seconds...")
+            time.sleep(10)
+
+
+def send_heartbeat_sync():
+    while True:
+        time.sleep(HEARTBEAT_INTERVAL)
         if not CENTRAL_SERVER_URL or not PROVIDER_API_KEY:
-            await asyncio.sleep(10)
             continue
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(
+            with httpx.Client(timeout=10.0) as client:
+                client.post(
                     f"{CENTRAL_SERVER_URL.rstrip('/')}/api/v1/providers/heartbeat",
-                    headers={"X-API-Key": PROVIDER_API_KEY},
-                    json={
-                        "available": generator is not None
-                        and not generator._generating,
-                        "model": generator.model_key if generator else None,
-                        "docker_digest": DOCKER_DIGEST,
+                    headers={
+                        "X-API-Key": PROVIDER_API_KEY,
+                        "X-Provider-Hash": SELF_HASH,
                     },
+                    json=True,
                 )
-            print(f"💓 Heartbeat sent...")
+            print(f"💓 Heartbeat sent")
         except Exception as e:
-            print(f"⚠️ Heartbeat failed: {e}")
-
-        await asyncio.sleep(HEARTBEAT_INTERVAL)
+            print(f"⚠️  Heartbeat failed: {e}")
 
 
 class AudioGenerator:
@@ -171,78 +249,6 @@ class AudioGenerator:
             torch.cuda.empty_cache()
         gc.collect()
 
-    def generate(self, prompt: str, duration: int) -> bytes:
-        with self._lock:
-            self._generating = True
-            try:
-                return self._generate(prompt, duration)
-            finally:
-                self._generating = False
-
-    def _generate(self, prompt: str, duration: int) -> bytes:
-        duration = max(MIN_DURATION, min(MAX_DURATION, duration))
-
-        num_inference_steps = 50
-        cfg_scale = 7.0
-
-        seed = random.randint(0, 2**31 - 1)
-        gen = torch.Generator(device=self.device).manual_seed(seed)
-
-        print(
-            f"🎵 Generating: '{prompt[:80]}' | {duration}s | steps={num_inference_steps}"
-        )
-        t0 = time.time()
-
-        result = self.pipeline(
-            prompt,
-            negative_prompt="Low quality, distorted, noise",
-            num_inference_steps=num_inference_steps,
-            audio_end_in_s=duration,
-            num_waveforms_per_prompt=1,
-            generator=gen,
-            guidance_scale=cfg_scale,
-        )
-
-        print(f"✅ Done in {time.time() - t0:.1f}s")
-
-        audio = result.audios[0].float().cpu().numpy()
-
-        if self.sample_rate != TARGET_SAMPLE_RATE:
-            if len(audio.shape) > 1 and audio.shape[0] == 2:
-                audio = np.array(
-                    [
-                        librosa.resample(
-                            audio[0],
-                            orig_sr=self.sample_rate,
-                            target_sr=TARGET_SAMPLE_RATE,
-                        ),
-                        librosa.resample(
-                            audio[1],
-                            orig_sr=self.sample_rate,
-                            target_sr=TARGET_SAMPLE_RATE,
-                        ),
-                    ]
-                )
-            else:
-                audio = librosa.resample(
-                    audio, orig_sr=self.sample_rate, target_sr=TARGET_SAMPLE_RATE
-                )
-
-        max_val = np.max(np.abs(audio))
-        if max_val > 0:
-            audio = audio / max_val * 0.9
-
-        if len(audio.shape) > 1 and audio.shape[0] == 2:
-            audio = audio.T
-
-        buf = io.BytesIO()
-        sf.write(buf, audio, TARGET_SAMPLE_RATE, format="WAV")
-        buf.seek(0)
-        wav_bytes = buf.read()
-
-        print(f"📦 WAV ready: {len(wav_bytes) / 1024:.1f} KB")
-        return wav_bytes
-
     def generate_with_seed(self, prompt: str, duration: int, seed: int) -> bytes:
         with self._lock:
             self._generating = True
@@ -258,7 +264,6 @@ class AudioGenerator:
 
         gen = torch.Generator(device=self.device).manual_seed(seed)
 
-        print(f"🔍 Verify generation: '{prompt[:60]}' | seed={seed} | {duration}s")
         t0 = time.time()
 
         result = self.pipeline(
@@ -314,7 +319,29 @@ class AudioGenerator:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    asyncio.create_task(send_heartbeat())
+    global PROVIDER_API_KEY, SHARED_SECRET, SELF_HASH
+
+    obsidian_token = os.getenv("OBSIDIAN_TOKEN", "")
+    if obsidian_token:
+        if not CENTRAL_SERVER_URL:
+            print("❌ CENTRAL_SERVER_URL is required with OBSIDIAN_TOKEN")
+            sys.exit(1)
+        creds = await activate_with_token(obsidian_token, CENTRAL_SERVER_URL)
+        PROVIDER_API_KEY = creds["api_key"]
+        SHARED_SECRET = creds["server_to_provider_key"]
+    else:
+        if not PROVIDER_API_KEY or not SHARED_SECRET:
+            print("❌ PROVIDER_API_KEY and SERVER_TO_PROVIDER_KEY required in .env")
+            sys.exit(1)
+
+    SELF_HASH = _compute_self_hash()
+
+    ws_thread = threading.Thread(target=connect_to_central_registry, daemon=True)
+    ws_thread.start()
+
+    hb_thread = threading.Thread(target=send_heartbeat_sync, daemon=True)
+    hb_thread.start()
+
     yield
 
 
@@ -326,119 +353,76 @@ app = FastAPI(
 )
 
 
-@app.get("/status", dependencies=[Depends(verify_server_identity)])
-async def status(nonce: str = "default_nonce"):
-    is_available = generator is not None and not generator._generating
+@app.post("/process", dependencies=[Depends(verify_server_identity)])
+async def process(request: ProcessRequest):
 
-    t0 = time.time()
-    integrity_proof = calculate_integrity_hash(nonce=nonce)
-    calc_duration = (time.time() - t0) * 1000
-
-    vram_info = {}
-    if torch.cuda.is_available():
-        vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
-        vram_used = torch.cuda.memory_allocated(0) / 1024**3
-        vram_info = {
-            "vram_total_gb": round(vram_total, 1),
-            "vram_used_gb": round(vram_used, 1),
-        }
-
-    return {
-        "available": is_available,
-        "api_key": PROVIDER_API_KEY,
-        "integrity_hash": integrity_proof,
-        "nonce_queried": nonce,
-        "docker_digest": DOCKER_DIGEST,
-        "verification_speed_ms": round(calc_duration, 2),
-        "model": generator.model_key if generator else None,
-        "model_id": generator.model_id if generator else None,
-        "device": generator.device if generator else None,
-        "generating": generator._generating if generator else False,
-        **vram_info,
-    }
-
-
-@app.post("/generate", dependencies=[Depends(verify_server_identity)])
-async def generate(request: GenerateRequest):
-    if generator is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-
-    if generator._generating:
-        raise HTTPException(
-            status_code=503, detail="Already generating — try again later"
-        )
-
-    if not request.prompt or not request.prompt.strip():
-        raise HTTPException(status_code=400, detail="Prompt is required")
-
-    duration = max(MIN_DURATION, min(MAX_DURATION, request.duration))
-
-    try:
-        loop = asyncio.get_event_loop()
-        wav_bytes = await loop.run_in_executor(
-            None,
-            generator.generate,
-            request.prompt,
-            duration,
-        )
-        return Response(
-            content=wav_bytes,
-            media_type="audio/wav",
-            headers={
-                "X-Provider-Key": PROVIDER_API_KEY,
-                "X-Model": generator.model_key,
-                "X-Duration": str(duration),
-                "X-Sample-Rate": str(TARGET_SAMPLE_RATE),
+    if request.action == "health":
+        return JSONResponse(
+            content={
+                "status": "ok",
+                "model": generator.model_key,
+                "model_id": generator.model_id,
             },
-        )
-    except Exception as e:
-        print(f"❌ Generation error: {e}")
-        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
-
-
-@app.post("/verify", dependencies=[Depends(verify_server_identity)])
-async def verify(request: VerifyRequest):
-    if generator is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-
-    if generator._generating:
-        raise HTTPException(
-            status_code=503, detail="Already generating — try again later"
+            headers={"X-Provider-Hash": SELF_HASH},
         )
 
-    if not request.prompt or not request.prompt.strip():
-        raise HTTPException(status_code=400, detail="Prompt is required")
-
-    duration = max(MIN_DURATION, min(10, request.duration))
-
-    try:
-        loop = asyncio.get_event_loop()
-
-        wav_bytes = await loop.run_in_executor(
-            None,
-            generator.generate_with_seed,
-            request.prompt,
-            duration,
-            request.seed,
-        )
-
-        return Response(
-            content=wav_bytes,
-            media_type="audio/wav",
-            headers={
-                "X-Provider-Key": PROVIDER_API_KEY,
-                "X-Seed": str(request.seed),
-                "X-Model": generator.model_key,
+    elif request.action == "status":
+        is_available = generator is not None and not generator._generating
+        vram_info = {}
+        if torch.cuda.is_available():
+            vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            vram_used = torch.cuda.memory_allocated(0) / 1024**3
+            vram_info = {
+                "vram_total_gb": round(vram_total, 1),
+                "vram_used_gb": round(vram_used, 1),
+            }
+        return JSONResponse(
+            content={
+                "available": is_available,
+                "api_key": PROVIDER_API_KEY,
+                "model": generator.model_key,
+                "model_id": generator.model_id,
+                "device": generator.device,
+                "generating": generator._generating if generator else False,
+                **vram_info,
             },
+            headers={"X-Provider-Hash": SELF_HASH},
         )
-    except Exception as e:
-        print(f"❌ Verify generation error: {e}")
-        raise HTTPException(status_code=500, detail=f"Verification failed: {str(e)}")
 
+    elif request.action == "generate":
+        if generator is None:
+            raise HTTPException(status_code=503, detail="Model not loaded")
+        if generator._generating:
+            raise HTTPException(
+                status_code=503, detail="Already generating — try again later"
+            )
 
-@app.get("/health", dependencies=[Depends(verify_server_identity)])
-async def health():
-    return {"status": "ok", "model_loaded": generator is not None}
+        duration = max(MIN_DURATION, min(MAX_DURATION, request.duration))
+
+        try:
+            loop = asyncio.get_event_loop()
+            wav_bytes = await loop.run_in_executor(
+                None,
+                generator.generate_with_seed,
+                request.prompt,
+                duration,
+                request.seed,
+            )
+            return Response(
+                content=wav_bytes,
+                media_type="audio/wav",
+                headers={
+                    "X-Provider-Key": PROVIDER_API_KEY,
+                    "X-Model": generator.model_key,
+                    "X-Duration": str(duration),
+                    "X-Sample-Rate": str(TARGET_SAMPLE_RATE),
+                    "X-Seed": str(request.seed),
+                    "X-Provider-Hash": SELF_HASH,
+                },
+            )
+        except Exception as e:
+            print(f"❌ Generation error: {e}")
+            raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
 
 
 @app.get("/", response_class=PlainTextResponse)
@@ -496,4 +480,4 @@ if __name__ == "__main__":
     print(f"  Server : {CENTRAL_SERVER_URL or 'not configured'}")
     print(f"{'='*55}\n")
 
-    uvicorn.run(app, host=HOST, port=PORT, log_level="info")
+    uvicorn.run(app, host=HOST, port=PORT, log_level="info", backlog=2048)
