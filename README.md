@@ -49,7 +49,181 @@ Subscription revenue is redistributed **equally** among all eligible providers e
 
 ## Quick start
 
-### 1 — Install Docker + NVIDIA Container Toolkit
+### 1 — Benchmark your GPU
+
+Before anything, verify your GPU is fast enough. The model is bundled in the image — no download required:
+
+```bash
+docker run --rm --gpus all \
+  -e HF_HOME=/root/.cache/huggingface \
+  innermost47/obsidian-neural-provider:latest \
+  python benchmark.py
+```
+
+| Model                   | Max average time for 10s audio |
+| ----------------------- | ------------------------------ |
+| `stable-audio-open-1.0` | 60s                            |
+
+If your GPU is eligible, proceed to the next step.
+
+---
+
+### 2 — Join the network
+
+1. Send an email to **contact@obsidian-neural.com** with your GPU model and your public URL (see Network setup below)
+2. The admin creates your provider account and sends you your **activation token** (`OBSIDIAN_TOKEN`)
+3. The pool is limited to **10 providers** in phase 1
+
+---
+
+### 3 — Network setup
+
+Your machine must be reachable from the internet over **HTTPS with WebSocket support**. This requires:
+
+- A domain name or free DDNS hostname pointing to your public IP
+- Port forwarding on your router (443 → your machine)
+- nginx as a reverse proxy with a valid SSL certificate
+- Ports 80 and 443 open on your firewall
+
+#### 3a — Get a free domain (DDNS)
+
+If you don't have a static IP or domain name, use [DuckDNS](https://www.duckdns.org):
+
+1. Create a free account and register a subdomain (e.g. `myprovider.duckdns.org`)
+2. Keep your IP up to date:
+
+**Linux:**
+
+```bash
+mkdir -p ~/duckdns
+cat > ~/duckdns/duck.sh << 'EOF'
+echo url="https://www.duckdns.org/update?domains=YOUR_DOMAIN&token=YOUR_TOKEN&ip=" | curl -k -o ~/duckdns/duck.log -K -
+EOF
+chmod +x ~/duckdns/duck.sh
+(crontab -l 2>/dev/null; echo "*/5 * * * * ~/duckdns/duck.sh >/dev/null 2>&1") | crontab -
+```
+
+**Windows:**
+Download and install the [DuckDNS Windows client](https://www.duckdns.org/install.jsp?tab=windows).
+
+#### 3b — Port forwarding
+
+On your router admin panel (usually `192.168.1.1`):
+
+- Forward **external port 443** → **your machine's local IP:443**
+- Forward **external port 80** → **your machine's local IP:80** (required for Let's Encrypt)
+
+Assign a **static local IP** to your machine in your router's DHCP settings.
+
+#### 3c — Install nginx + SSL certificate
+
+**Linux:**
+
+```bash
+sudo apt install nginx certbot python3-certbot-nginx -y
+sudo certbot --nginx -d myprovider.duckdns.org
+sudo nano /etc/nginx/sites-available/obsidian-provider
+```
+
+```nginx
+server {
+    listen 80;
+    server_name myprovider.duckdns.org;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name myprovider.duckdns.org;
+
+    ssl_certificate /etc/letsencrypt/live/myprovider.duckdns.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/myprovider.duckdns.org/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/obsidian-provider /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+**Windows:**
+
+1. Download [nginx for Windows](https://nginx.org/en/docs/windows.html)
+2. Download [win-acme](https://www.win-acme.com/) for Let's Encrypt certificates
+3. Run win-acme to obtain a certificate for your domain
+4. Edit `nginx/conf/nginx.conf`:
+
+```nginx
+events {}
+
+http {
+    server {
+        listen 80;
+        server_name myprovider.duckdns.org;
+        return 301 https://$host$request_uri;
+    }
+
+    server {
+        listen 443 ssl;
+        server_name myprovider.duckdns.org;
+
+        ssl_certificate C:/path/to/fullchain.pem;
+        ssl_certificate_key C:/path/to/privkey.pem;
+
+        location / {
+            proxy_pass http://localhost:8000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 75s;
+        }
+    }
+}
+```
+
+```bat
+nginx.exe
+```
+
+#### 3d — Open firewall ports
+
+**Linux:**
+
+```bash
+sudo ufw allow 80
+sudo ufw allow 443
+sudo ufw reload
+```
+
+**Windows:**
+
+```powershell
+netsh advfirewall firewall add rule name="OBSIDIAN HTTP" protocol=TCP dir=in localport=80 action=allow
+netsh advfirewall firewall add rule name="OBSIDIAN HTTPS" protocol=TCP dir=in localport=443 action=allow
+```
+
+---
+
+### 4 — Install Docker + NVIDIA Container Toolkit
 
 **Windows:**
 
@@ -72,19 +246,15 @@ sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker
 ```
 
-### 2 — Join the network
+---
 
-1. Open a **GitHub Discussion** on [innermost47/ai-dj](https://github.com/innermost47/ai-dj/discussions) with your GPU model
-2. The admin creates your provider account and sends you your **activation token** (`OBSIDIAN_TOKEN`)
-3. The pool is limited to **10 providers** in phase 1
-
-### 3 — Run the provider
+### 5 — Run the provider
 
 ```bash
 docker run -d \
   --name obsidian-provider \
   -e OBSIDIAN_TOKEN=your_activation_token \
-  -e CENTRAL_SERVER_URL=https:///ai-harmony.duckdns.org/obsidian \
+  -e CENTRAL_SERVER_URL=https://api.obsidian-neural.com \
   --gpus all \
   -p 8000:8000 \
   -v obsidian_data:/data \
@@ -92,16 +262,18 @@ docker run -d \
   innermost47/obsidian-neural-provider:latest
 ```
 
-That's it. The container:
+The container:
 
 - Activates itself automatically with your token on first start
-- Downloads credentials and saves them locally for subsequent restarts
-- Connects to the central server and starts accepting jobs
+- Saves credentials locally for subsequent restarts — no re-activation needed
+- Connects to the central server via WebSocket and starts accepting jobs
 
-### 4 — Verify it's running
+---
+
+### 6 — Verify it's running
 
 ```bash
-docker logs -f <container_id>
+docker logs -f obsidian-provider
 ```
 
 You should see:
@@ -174,21 +346,8 @@ Pings and canary tests are sent at **random times** to prevent any form of sched
 - The central server validates every WAV via FFmpeg before sending it to the musician
 - An invalid WAV results in an **immediate ban**
 - Your credentials are stored locally in a Docker volume (`/data/credentials.json`) and never transmitted after activation
-- The image is signed — verify it before running (see above)
-
----
-
-## Benchmarking
-
-Before joining the network, run the local benchmark to verify your GPU meets the minimum speed requirements:
-
-```bash
-docker run --rm --gpus all innermost47/obsidian-neural-provider:latest python benchmark.py
-```
-
-| Model                   | Max average time for 10s audio |
-| ----------------------- | ------------------------------ |
-| `stable-audio-open-1.0` | 60s                            |
+- All communication uses HTTPS + WSS — never plain HTTP
+- The image is signed with Cosign — verify it before running (see above)
 
 ---
 
