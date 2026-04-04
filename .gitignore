@@ -49,3 +49,5 @@ tmp/
 temp/
 
 cosign*
+
+release.bat
