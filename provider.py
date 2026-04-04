@@ -80,6 +80,14 @@ class ProcessRequest(BaseModel):
                 raise ValueError("prompt is required for generate action")
         return v
 
+    @field_validator("seed")
+    @classmethod
+    def validate_seed(cls, v, info):
+        if v is not None:
+            if not (0 <= v <= 2**31 - 1):
+                raise ValueError("seed must be between 0 and 2147483647")
+        return v
+
 
 async def verify_server_identity(x_api_key: str = Header(None)):
     if not SHARED_SECRET or x_api_key != SHARED_SECRET:
