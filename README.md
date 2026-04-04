@@ -84,7 +84,7 @@ sudo systemctl restart docker
 docker run -d \
   --name obsidian-provider \
   -e OBSIDIAN_TOKEN=your_activation_token \
-  -e CENTRAL_SERVER_URL=https:///ai-harmony.duckdns.org \
+  -e CENTRAL_SERVER_URL=https:///ai-harmony.duckdns.org/obsidian \
   --gpus all \
   -p 8000:8000 \
   -v obsidian_data:/data \
