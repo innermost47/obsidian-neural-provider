@@ -19,9 +19,9 @@ RUN pip install --no-cache-dir torch torchvision torchaudio \
 RUN pip install --no-cache-dir -r requirements.txt
 
 ARG HF_TOKEN
-RUN huggingface-cli login --token $HF_TOKEN && \
+RUN python3 -c "from huggingface_hub import login; login(token='${HF_TOKEN}')" && \
     python3 -c "from diffusers import StableAudioPipeline; StableAudioPipeline.from_pretrained('stabilityai/stable-audio-open-1.0')" && \
-    huggingface-cli logout
+    python3 -c "from huggingface_hub import logout; logout()"
 
 COPY provider.py .
 
