@@ -7,6 +7,7 @@ import time
 import threading
 from contextlib import asynccontextmanager
 from typing import Optional
+import json
 import httpx
 import librosa
 import numpy as np
@@ -34,7 +35,7 @@ SHARED_SECRET = os.getenv("SERVER_TO_PROVIDER_KEY")
 HOST: str = os.getenv("HOST", "0.0.0.0")
 PORT: int = int(os.getenv("PORT", "8000"))
 MODEL_KEY: str = os.getenv("MODEL", "stable-audio-open-1.0")
-
+CREDENTIALS_FILE = "/data/credentials.json"
 SUPPORTED_MODELS = {
     "stable-audio-open-1.0": "stabilityai/stable-audio-open-1.0",
 }
@@ -98,6 +99,33 @@ async def verify_server_identity(x_api_key: str = Header(None)):
     return x_api_key
 
 
+async def activate_with_token(token: str, central_url: str) -> dict:
+    if os.path.exists(CREDENTIALS_FILE):
+        print("🔑 Loading saved credentials...")
+        with open(CREDENTIALS_FILE, "r") as f:
+            return json.load(f)
+
+    print("🔑 Activating provider with token...")
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            response = await client.post(
+                f"{central_url.rstrip('/')}/api/v1/providers/activate",
+                json={"token": token},
+            )
+            if response.status_code != 200:
+                print(f"❌ Activation failed: {response.text}")
+                sys.exit(1)
+            data = response.json()
+            os.makedirs(os.path.dirname(CREDENTIALS_FILE), exist_ok=True)
+            with open(CREDENTIALS_FILE, "w") as f:
+                json.dump(data, f)
+            print(f"✅ Activated as: {data['provider_name']}")
+            return data
+        except Exception as e:
+            print(f"❌ Cannot reach central server: {e}")
+            sys.exit(1)
+
+
 def _compute_self_hash() -> str:
     try:
         with open(__file__, "rb") as f:
@@ -112,28 +140,28 @@ def _compute_self_hash() -> str:
 
 
 def connect_to_central_registry():
-    if not CENTRAL_SERVER_URL:
-        print("⚠️ WebSocket: CENTRAL_SERVER_URL not configured, skip.")
-        return
-
-    ws_url = (
-        CENTRAL_SERVER_URL.replace("http://", "ws://")
-        .replace("https://", "wss://")
-        .rstrip("/")
-    )
-    uri = f"{ws_url}/api/v1/providers/connect"
-
-    headers = {
-        "X-Provider-Key": PROVIDER_API_KEY,
-        "X-Model": MODEL_KEY,
-        "X-Provider-Hash": SELF_HASH,
-    }
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     while True:
+        if not CENTRAL_SERVER_URL or not PROVIDER_API_KEY:
+            print("⚠️ WebSocket: credentials not ready, retrying in 10s...")
+            time.sleep(10)
+            continue
         try:
+            ws_url = (
+                CENTRAL_SERVER_URL.replace("http://", "ws://")
+                .replace("https://", "wss://")
+                .rstrip("/")
+            )
+            uri = f"{ws_url}/api/v1/providers/connect"
+
+            headers = {
+                "X-Provider-Key": PROVIDER_API_KEY,
+                "X-Model": MODEL_KEY,
+                "X-Provider-Hash": SELF_HASH,
+            }
             print(f"🔌 Attempting to connect to the central registry: {uri}...")
             websocket = loop.run_until_complete(
                 websockets.connect(
@@ -300,8 +328,23 @@ class AudioGenerator:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global SELF_HASH
+    global PROVIDER_API_KEY, SHARED_SECRET, SELF_HASH
+
+    obsidian_token = os.getenv("OBSIDIAN_TOKEN", "")
+    if obsidian_token:
+        if not CENTRAL_SERVER_URL:
+            print("❌ CENTRAL_SERVER_URL is required with OBSIDIAN_TOKEN")
+            sys.exit(1)
+        creds = await activate_with_token(obsidian_token, CENTRAL_SERVER_URL)
+        PROVIDER_API_KEY = creds["api_key"]
+        SHARED_SECRET = creds["server_to_provider_key"]
+    else:
+        if not PROVIDER_API_KEY or not SHARED_SECRET:
+            print("❌ PROVIDER_API_KEY and SERVER_TO_PROVIDER_KEY required in .env")
+            sys.exit(1)
+
     SELF_HASH = _compute_self_hash()
+
     ws_thread = threading.Thread(target=connect_to_central_registry, daemon=True)
     ws_thread.start()
 

@@ -14,132 +14,144 @@
 
 ## Overview
 
-OBSIDIAN Neural is an open source VST3/AU plugin for real-time AI music generation directly in your DAW. This repository contains the **provider kit**: a FastAPI inference server you run on your machine to contribute your GPU to the distributed generation network.
+OBSIDIAN Neural is an open source VST3/AU plugin for real-time AI music generation directly in your DAW. This repository contains the **provider kit**: a containerized FastAPI inference server you run on your machine to contribute your GPU to the distributed generation network.
 
 ## How it works
 
 ```
+
 Musician in their DAW
-        ↓ types a prompt
+↓ types a prompt
 OBSIDIAN Neural central server
-        ↓ finds an available GPU in the pool
+↓ finds an available GPU in the pool
 Your machine (provider)
-        ↓ generates audio with Stable Audio
-        ↓ returns validated WAV
+↓ generates audio with Stable Audio
+↓ returns validated WAV
 Musician receives the sound in real time
+
 ```
 
-Subscription revenue is redistributed **equally** among all active providers each month via Stripe Connect, after deduction of a 15% platform fee covering infrastructure costs (fal.ai, hosting, maintenance). This fee is published publicly each month.
+Subscription revenue is redistributed **equally** among all eligible providers each month via Stripe Connect, after deduction of a 15% platform fee covering infrastructure costs (fal.ai, hosting, maintenance). This fee is published publicly each month.
 
 ---
 
 ## Requirements
 
-| Component  | `stable-audio-open-1.0` |
-| ---------- | ----------------------- |
-| NVIDIA GPU | RTX 3070+ (8 GB VRAM)   |
-| RAM        | 16 GB                   |
-| OS         | Windows / Linux / macOS |
-| Python     | 3.10+                   |
-| CUDA       | 11.8+                   |
-
-> Apple Silicon (M1/M2/M3) supported via Metal.
+| Component  | `stable-audio-open-1.0`              |
+| ---------- | ------------------------------------ |
+| NVIDIA GPU | RTX 3070+ (8 GB VRAM)                |
+| RAM        | 16 GB                                |
+| OS         | Windows / Linux                      |
+| CUDA       | 11.8+                                |
+| Docker     | 20.10+ with NVIDIA Container Toolkit |
 
 ---
 
-## Installation
+## Quick start
 
-### Linux / macOS
+### 1 — Install Docker + NVIDIA Container Toolkit
+
+**Windows:**
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with WSL2 backend
+- NVIDIA drivers ≥ 525 (NVIDIA Container Toolkit is bundled with Docker Desktop)
+
+**Linux:**
 
 ```bash
-git clone https://github.com/innermost47/obsidian-neural-provider.git
-cd obsidian-neural-provider
-chmod +x install.sh
-./install.sh
+# Docker
+curl -fsSL https://get.docker.com | sh
+
+# NVIDIA Container Toolkit
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
 ```
 
-### Windows
+### 2 — Join the network
 
-```bat
-git clone https://github.com/innermost47/obsidian-neural-provider.git
-cd obsidian-neural-provider
-install.bat
+1. Open a **GitHub Discussion** on [innermost47/ai-dj](https://github.com/innermost47/ai-dj/discussions) with your GPU model
+2. The admin creates your provider account and sends you your **activation token** (`OBSIDIAN_TOKEN`)
+3. The pool is limited to **10 providers** in phase 1
+
+### 3 — Run the provider
+
+```bash
+docker run -d \
+  -e OBSIDIAN_TOKEN=your_activation_token \
+  -e CENTRAL_SERVER_URL=https://api.obsidian-neural.com \
+  --gpus all \
+  -p 8000:8000 \
+  -v obsidian_data:/data \
+  --restart unless-stopped \
+  innermost47/obsidian-neural-provider:latest
 ```
 
-The scripts automatically detect your GPU and install the correct PyTorch version (CUDA 11.8, CUDA 12.1, ROCm, or CPU).
+**Windows (PowerShell):**
+
+```powershell
+docker run -d `
+  -e OBSIDIAN_TOKEN=your_activation_token `
+  -e CENTRAL_SERVER_URL=https://api.obsidian-neural.com `
+  --gpus all `
+  -p 8000:8000 `
+  -v obsidian_data:/data `
+  --restart unless-stopped `
+  innermost47/obsidian-neural-provider:latest
+```
+
+That's it. The container:
+
+- Activates itself automatically with your token on first start
+- Downloads credentials and saves them locally for subsequent restarts
+- Connects to the central server and starts accepting jobs
+
+### 4 — Verify it's running
+
+```bash
+docker logs -f <container_id>
+```
+
+You should see:
+
+```
+🔑 Activating provider with token...
+✅ Activated as: your-provider-name
+🔌 Attempting to connect to the central registry...
+✅ Connected to the central server (Active presence)
+```
 
 ---
 
-## Configuration
+## Image verification
 
-Copy `.env.example` to `.env` and fill it in:
-
-```bash
-cp .env.example .env
-```
-
-```env
-PROVIDER_API_KEY=op_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-CENTRAL_SERVER_URL=https://api.obsidian-neural.com
-MODEL=stable-audio-open-1.0
-HOST=0.0.0.0
-PORT=8000
-HEARTBEAT_INTERVAL=300
-```
-
-| Variable             | Description                                                      |
-| -------------------- | ---------------------------------------------------------------- |
-| `PROVIDER_API_KEY`   | Key provided by the OBSIDIAN Neural admin — **never share this** |
-| `CENTRAL_SERVER_URL` | Central server URL                                               |
-| `MODEL`              | `stable-audio-open-1.0`                                          |
-| `HOST`               | Listening interface (0.0.0.0 = all)                              |
-| `PORT`               | Server port (default: 8000)                                      |
-| `HEARTBEAT_INTERVAL` | Heartbeat frequency in seconds (default: 300)                    |
-
----
-
-## Starting the server
+The image is signed with [Cosign](https://github.com/sigstore/cosign). Verify before running:
 
 ```bash
-source venv/bin/activate   # Linux/macOS
-venv\Scripts\activate.bat  # Windows
-
-python provider.py
+cosign verify --key cosign.pub innermost47/obsidian-neural-provider:latest
 ```
 
-CLI arguments override `.env` if needed:
-
-```bash
-python provider.py --key op_xxx --port 8002 --server https://api.obsidian-neural.com
-```
+`cosign.pub` is available at the root of this repository.
 
 ---
 
 ## Models
 
-| Model                   | VRAM    | Quality | Speed (RTX 3070) | Download size |
-| ----------------------- | ------- | ------- | ---------------- | ------------- |
-| `stable-audio-open-1.0` | ~7-8 GB | ⭐⭐⭐  | ~10-15s          | ~5 GB         |
+| Model                   | VRAM    | Quality | Speed (RTX 3070) | Size  |
+| ----------------------- | ------- | ------- | ---------------- | ----- |
+| `stable-audio-open-1.0` | ~7-8 GB | ⭐⭐⭐  | ~10-15s          | ~5 GB |
 
-First launch downloads the model from HuggingFace. Subsequent launches are instant (cached model).
-
----
-
-## Endpoints
-
-| Method | Route       | Auth | Description                      |
-| ------ | ----------- | ---- | -------------------------------- |
-| `GET`  | `/status`   | ✅   | Availability + model info + VRAM |
-| `POST` | `/generate` | ✅   | Audio generation → WAV bytes     |
-| `GET`  | `/health`   | ❌   | Server health                    |
-
-Authentication via `X-API-Key` header.
+The model is bundled in the Docker image — no download required at runtime.
 
 ---
 
 ## Heartbeat
 
-The provider automatically sends a heartbeat to the central server every 5 minutes (configurable via `HEARTBEAT_INTERVAL`). This lets the central server know your machine is online, independently of random pings.
+The provider automatically sends a heartbeat to the central server every 5 minutes. This lets the central server know your machine is online, independently of random verification pings.
 
 ---
 
@@ -161,10 +173,10 @@ Example with 180€ and 6 providers:
 
 **Eligibility:**
 
-1. Uptime ≥ 80% of random pings that month
-2. At least 1 real job processed during the month
+1. **Presence** — worked ≥ 8h on at least 80% of your active days that month, AND accumulated ≥ 80% of your total expected hours. Providers who joined mid-month are evaluated proportionally from their join date.
+2. **Activity** — processed at least 1 real job during the month (not a fal.ai fallback)
 
-Pings are sent at **random times** to prevent cron-based cheating. The platform fee and redistributed amounts are published publicly each month on the central server.
+Pings and canary tests are sent at **random times** to prevent any form of scheduled cheating. The platform fee and redistributed amounts are published publicly each month on the central server.
 
 ---
 
@@ -173,7 +185,36 @@ Pings are sent at **random times** to prevent cron-based cheating. The platform 
 - Your server only receives the optimized prompt — never user personal data
 - The central server validates every WAV via FFmpeg before sending it to the musician
 - An invalid WAV results in an **immediate ban**
-- Never share your `PROVIDER_API_KEY`
+- Your credentials are stored locally in a Docker volume (`/data/credentials.json`) and never transmitted after activation
+- The image is signed — verify it before running (see above)
+
+---
+
+## Benchmarking
+
+Before joining the network, run the local benchmark to verify your GPU meets the minimum speed requirements:
+
+```bash
+docker run --rm --gpus all innermost47/obsidian-neural-provider:latest python benchmark.py
+```
+
+| Model                   | Max average time for 10s audio |
+| ----------------------- | ------------------------------ |
+| `stable-audio-open-1.0` | 60s                            |
+
+---
+
+## Building from source
+
+The `Dockerfile` is provided for transparency and self-hosting:
+
+```bash
+git clone https://github.com/innermost47/obsidian-neural-provider.git
+cd obsidian-neural-provider
+docker build --build-arg HF_TOKEN=your_hf_token -t obsidian-neural-provider .
+```
+
+A HuggingFace account and acceptance of the [Stable Audio Open 1.0 license](https://huggingface.co/stabilityai/stable-audio-open-1.0) are required to build the image.
 
 ---
 
@@ -182,66 +223,23 @@ Pings are sent at **random times** to prevent cron-based cheating. The platform 
 ```
 obsidian-neural-provider/
 ├── provider.py
+├── benchmark.py
 ├── requirements.txt
+├── Dockerfile
+├── cosign.pub
 ├── .env.example
-├── install.sh
-├── install.bat
 └── README.md
 ```
 
 ---
 
-### Public Data Dashboard
+## Public Data Dashboard
 
 All network data — active subscribers, monthly redistribution history, and proof-of-generation logs — is published live at:
 
 **[obsidian-neural.com/public.html](https://obsidian-neural.com/public.html)**
 
 No authentication required. No data is ever deleted.
-
----
-
-## Benchmarking
-
-Before joining the network, run the local benchmark to verify your GPU meets the minimum speed requirements.
-This test loads each model directly on your GPU, runs several generations, and reports your eligibility — no network call required.
-
-```bash
-python benchmark.py
-```
-
-To test a specific model only:
-
-```bash
-python benchmark.py
-```
-
-Options:
-
-| Flag          | Description                                     |
-| ------------- | ----------------------------------------------- |
-| `--runs`      | Number of benchmark runs per model (default: 3) |
-| `--no-warmup` | Skip the warmup run                             |
-
-**Eligibility thresholds:**
-
-| Model                   | Max average time for 10s audio |
-| ----------------------- | ------------------------------ |
-| `stable-audio-open-1.0` | 60s                            |
-
-A provider scoring above threshold on both models is not eligible for the network.
-The benchmark also reports the **Real-Time Factor (RTF)**: a value above `x1.0` means your GPU generates audio faster than it plays.
-
----
-
-## Joining the network
-
-1. Check that you have the minimum required GPU
-2. Open a **GitHub Discussion** on [innermost47/ai-dj](https://github.com/innermost47/ai-dj/discussions) with your GPU model and preferred inference model
-3. The admin sends you your API key
-4. Copy `.env.example` → `.env`, fill in your key, start the provider
-
-The pool is limited to **10 providers** in phase 1.
 
 ---
 
