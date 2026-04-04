@@ -16,7 +16,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Header, Depends, status as fastapi_status
 from fastapi.responses import Response, PlainTextResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 import websockets
 import sys
 import hashlib
@@ -46,10 +46,39 @@ TARGET_SAMPLE_RATE = 44100
 generator: Optional["AudioGenerator"] = None
 
 
-class GenerateRequest(BaseModel):
-    prompt: str
-    duration: int = 10
-    seed: int
+class ProcessRequest(BaseModel):
+    action: str
+    prompt: Optional[str] = None
+    duration: Optional[int] = 10
+    seed: Optional[int] = None
+
+    class Config:
+        extra = "forbid"
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, v):
+        if v not in ("health", "status", "generate"):
+            raise ValueError("action must be 'health', 'status', or 'generate'")
+        return v
+
+    @field_validator("duration")
+    @classmethod
+    def validate_duration(cls, v, info):
+        if info.data.get("action") == "generate" and v is not None:
+            if not (MIN_DURATION <= v <= MAX_DURATION):
+                raise ValueError(
+                    f"duration must be between {MIN_DURATION} and {MAX_DURATION}"
+                )
+        return v
+
+    @field_validator("prompt")
+    @classmethod
+    def validate_prompt(cls, v, info):
+        if info.data.get("action") == "generate":
+            if not v or not v.strip():
+                raise ValueError("prompt is required for generate action")
+        return v
 
 
 async def verify_server_identity(x_api_key: str = Header(None)):
@@ -109,8 +138,7 @@ def connect_to_central_registry():
             print("✅ Connected to the central server (Active presence)")
 
             while True:
-                message = loop.run_until_complete(websocket.recv())
-                print(f"📩 Server message: {message}")
+                loop.run_until_complete(websocket.recv())
 
         except Exception as e:
             print(f"❌ Register disconnection (Error: {e})")
@@ -131,11 +159,7 @@ def send_heartbeat_sync():
                         "X-API-Key": PROVIDER_API_KEY,
                         "X-Provider-Hash": SELF_HASH,
                     },
-                    json={
-                        "available": generator is not None
-                        and not generator._generating,
-                        "model": generator.model_key if generator else None,
-                    },
+                    json=True,
                 )
             print(f"💓 Heartbeat sent")
         except Exception as e:
@@ -287,79 +311,76 @@ app = FastAPI(
 )
 
 
-@app.get("/status", dependencies=[Depends(verify_server_identity)])
-async def status():
-    is_available = generator is not None and not generator._generating
-    vram_info = {}
-    if torch.cuda.is_available():
-        vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
-        vram_used = torch.cuda.memory_allocated(0) / 1024**3
-        vram_info = {
-            "vram_total_gb": round(vram_total, 1),
-            "vram_used_gb": round(vram_used, 1),
-        }
-    return JSONResponse(
-        content={
-            "available": is_available,
-            "api_key": PROVIDER_API_KEY,
-            "model": generator.model_key if generator else None,
-            "model_id": generator.model_id if generator else None,
-            "device": generator.device if generator else None,
-            "generating": generator._generating if generator else False,
-            **vram_info,
-        },
-        headers={"X-Provider-Hash": SELF_HASH},
-    )
+@app.post("/process", dependencies=[Depends(verify_server_identity)])
+async def process(request: ProcessRequest):
 
-
-@app.post("/generate", dependencies=[Depends(verify_server_identity)])
-async def generate(request: GenerateRequest):
-    if generator is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-    if generator._generating:
-        raise HTTPException(
-            status_code=503, detail="Already generating — try again later"
-        )
-    if not request.prompt or not request.prompt.strip():
-        raise HTTPException(status_code=400, detail="Prompt is required")
-
-    duration = max(MIN_DURATION, min(MAX_DURATION, request.duration))
-
-    try:
-        loop = asyncio.get_event_loop()
-        wav_bytes = await loop.run_in_executor(
-            None,
-            generator.generate_with_seed,
-            request.prompt,
-            duration,
-            request.seed,
-        )
-        return Response(
-            content=wav_bytes,
-            media_type="audio/wav",
-            headers={
-                "X-Provider-Key": PROVIDER_API_KEY,
-                "X-Model": generator.model_key,
-                "X-Duration": str(duration),
-                "X-Sample-Rate": str(TARGET_SAMPLE_RATE),
-                "X-Seed": str(request.seed),
-                "X-Provider-Hash": SELF_HASH,
+    if request.action == "health":
+        return JSONResponse(
+            content={
+                "status": "ok",
+                "model": generator.model_key,
+                "model_id": generator.model_id,
             },
+            headers={"X-Provider-Hash": SELF_HASH},
         )
-    except Exception as e:
-        print(f"❌ Generation error: {e}")
-        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
 
+    elif request.action == "status":
+        is_available = generator is not None and not generator._generating
+        vram_info = {}
+        if torch.cuda.is_available():
+            vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            vram_used = torch.cuda.memory_allocated(0) / 1024**3
+            vram_info = {
+                "vram_total_gb": round(vram_total, 1),
+                "vram_used_gb": round(vram_used, 1),
+            }
+        return JSONResponse(
+            content={
+                "available": is_available,
+                "api_key": PROVIDER_API_KEY,
+                "model": generator.model_key,
+                "model_id": generator.model_id,
+                "device": generator.device,
+                "generating": generator._generating if generator else False,
+                **vram_info,
+            },
+            headers={"X-Provider-Hash": SELF_HASH},
+        )
 
-@app.get("/health", dependencies=[Depends(verify_server_identity)])
-async def health():
-    return JSONResponse(
-        content={
-            "status": "ok",
-            "model_loaded": generator is not None,
-        },
-        headers={"X-Provider-Hash": SELF_HASH},
-    )
+    elif request.action == "generate":
+        if generator is None:
+            raise HTTPException(status_code=503, detail="Model not loaded")
+        if generator._generating:
+            raise HTTPException(
+                status_code=503, detail="Already generating — try again later"
+            )
+
+        duration = max(MIN_DURATION, min(MAX_DURATION, request.duration))
+
+        try:
+            loop = asyncio.get_event_loop()
+            wav_bytes = await loop.run_in_executor(
+                None,
+                generator.generate_with_seed,
+                request.prompt,
+                duration,
+                request.seed,
+            )
+            return Response(
+                content=wav_bytes,
+                media_type="audio/wav",
+                headers={
+                    "X-Provider-Key": PROVIDER_API_KEY,
+                    "X-Model": generator.model_key,
+                    "X-Duration": str(duration),
+                    "X-Sample-Rate": str(TARGET_SAMPLE_RATE),
+                    "X-Seed": str(request.seed),
+                    "X-Provider-Hash": SELF_HASH,
+                },
+            )
+        except Exception as e:
+            print(f"❌ Generation error: {e}")
+            raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
 
 
 @app.get("/", response_class=PlainTextResponse)
@@ -416,7 +437,5 @@ if __name__ == "__main__":
     print(f"  Host   : {HOST}:{PORT}")
     print(f"  Server : {CENTRAL_SERVER_URL or 'not configured'}")
     print(f"{'='*55}\n")
-
-    uvicorn.Config(app, host=HOST, port=PORT, log_level="info", backlog=2048)
 
     uvicorn.run(app, host=HOST, port=PORT, log_level="info", backlog=2048)
