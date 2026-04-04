@@ -459,10 +459,6 @@ if __name__ == "__main__":
     if args.server:
         CENTRAL_SERVER_URL = args.server
 
-    if not PROVIDER_API_KEY:
-        print("❌ API key required — set PROVIDER_API_KEY in .env or use --key")
-        exit(1)
-
     if MODEL_KEY not in SUPPORTED_MODELS:
         print(
             f"❌ Unknown model: {MODEL_KEY}. Choose from: {list(SUPPORTED_MODELS.keys())}"
