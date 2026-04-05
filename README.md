@@ -254,7 +254,7 @@ sudo systemctl restart docker
 docker run -d \
   --name obsidian-provider \
   -e OBSIDIAN_TOKEN=your_activation_token \
-  -e CENTRAL_SERVER_URL=https://api.obsidian-neural.com \
+  -e CENTRAL_SERVER_URL=https://central.server.url.com \
   --gpus all \
   -p 8000:8000 \
   -v obsidian_data:/data \
