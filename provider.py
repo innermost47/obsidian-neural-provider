@@ -267,63 +267,67 @@ class AudioGenerator:
                 self._generating = False
 
     def _generate_with_seed(self, prompt: str, duration: int, seed: int) -> bytes:
-        duration = max(MIN_DURATION, min(10, duration))
-        num_inference_steps = 50
-        cfg_scale = 7.0
+        try:
+            self.load()
+            duration = max(MIN_DURATION, min(10, duration))
+            num_inference_steps = 50
+            cfg_scale = 7.0
 
-        gen = torch.Generator(device=self.device).manual_seed(seed)
+            gen = torch.Generator(device=self.device).manual_seed(seed)
 
-        t0 = time.time()
+            t0 = time.time()
 
-        result = self.pipeline(
-            prompt,
-            negative_prompt="Low quality, distorted, noise",
-            num_inference_steps=num_inference_steps,
-            audio_end_in_s=duration,
-            num_waveforms_per_prompt=1,
-            generator=gen,
-            guidance_scale=cfg_scale,
-        )
+            result = self.pipeline(
+                prompt,
+                negative_prompt="Low quality, distorted, noise",
+                num_inference_steps=num_inference_steps,
+                audio_end_in_s=duration,
+                num_waveforms_per_prompt=1,
+                generator=gen,
+                guidance_scale=cfg_scale,
+            )
 
-        print(f"✅ Verify done in {time.time() - t0:.1f}s")
+            print(f"✅ Verify done in {time.time() - t0:.1f}s")
 
-        audio = result.audios[0].float().cpu().numpy()
+            audio = result.audios[0].float().cpu().numpy()
 
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
-        if self.sample_rate != TARGET_SAMPLE_RATE:
+            if self.sample_rate != TARGET_SAMPLE_RATE:
+                if len(audio.shape) > 1 and audio.shape[0] == 2:
+                    audio = np.array(
+                        [
+                            librosa.resample(
+                                audio[0],
+                                orig_sr=self.sample_rate,
+                                target_sr=TARGET_SAMPLE_RATE,
+                            ),
+                            librosa.resample(
+                                audio[1],
+                                orig_sr=self.sample_rate,
+                                target_sr=TARGET_SAMPLE_RATE,
+                            ),
+                        ]
+                    )
+                else:
+                    audio = librosa.resample(
+                        audio, orig_sr=self.sample_rate, target_sr=TARGET_SAMPLE_RATE
+                    )
+
+            max_val = np.max(np.abs(audio))
+            if max_val > 0:
+                audio = audio / max_val * 0.9
+
             if len(audio.shape) > 1 and audio.shape[0] == 2:
-                audio = np.array(
-                    [
-                        librosa.resample(
-                            audio[0],
-                            orig_sr=self.sample_rate,
-                            target_sr=TARGET_SAMPLE_RATE,
-                        ),
-                        librosa.resample(
-                            audio[1],
-                            orig_sr=self.sample_rate,
-                            target_sr=TARGET_SAMPLE_RATE,
-                        ),
-                    ]
-                )
-            else:
-                audio = librosa.resample(
-                    audio, orig_sr=self.sample_rate, target_sr=TARGET_SAMPLE_RATE
-                )
+                audio = audio.T
 
-        max_val = np.max(np.abs(audio))
-        if max_val > 0:
-            audio = audio / max_val * 0.9
-
-        if len(audio.shape) > 1 and audio.shape[0] == 2:
-            audio = audio.T
-
-        buf = io.BytesIO()
-        sf.write(buf, audio, TARGET_SAMPLE_RATE, format="WAV")
-        buf.seek(0)
-        return buf.read()
+            buf = io.BytesIO()
+            sf.write(buf, audio, TARGET_SAMPLE_RATE, format="WAV")
+            buf.seek(0)
+            return buf.read()
+        finally:
+            self.unload()
 
 
 @asynccontextmanager
@@ -475,7 +479,6 @@ if __name__ == "__main__":
         exit(1)
 
     generator = AudioGenerator(model_key=MODEL_KEY)
-    generator.load()
 
     print(f"\n{'='*55}")
     print(f"  OBSIDIAN Neural Provider")
