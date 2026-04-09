@@ -34,10 +34,10 @@ HEARTBEAT_INTERVAL: int = int(os.getenv("HEARTBEAT_INTERVAL", "300"))
 SHARED_SECRET = os.getenv("SERVER_TO_PROVIDER_KEY")
 HOST: str = os.getenv("HOST", "0.0.0.0")
 PORT: int = int(os.getenv("PORT", "8000"))
-MODEL_KEY: str = os.getenv("MODEL", "stable-audio-open-1.0")
+MODEL_KEY: str = os.getenv("MODEL", "RoyalCities/Foundation-1")
 CREDENTIALS_FILE = os.getenv("CREDENTIALS_FILE", "/data/credentials.json")
 SUPPORTED_MODELS = {
-    "stable-audio-open-1.0": "stabilityai/stable-audio-open-1.0",
+    "Foundation-1": "RoyalCities/Foundation-1",
 }
 
 MAX_DURATION = 30

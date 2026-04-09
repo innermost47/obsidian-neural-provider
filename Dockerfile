@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 ARG HF_TOKEN
 RUN python3 -c "from huggingface_hub import login; login(token='${HF_TOKEN}')" && \
-    python3 -c "from diffusers import StableAudioPipeline; StableAudioPipeline.from_pretrained('stabilityai/stable-audio-open-1.0')"
+    python3 -c "from diffusers import StableAudioPipeline; StableAudioPipeline.from_pretrained('RoyalCities/Foundation-1')"
 
 COPY provider.py .
 
