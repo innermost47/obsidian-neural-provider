@@ -35,11 +35,12 @@ HEARTBEAT_INTERVAL: int = int(os.getenv("HEARTBEAT_INTERVAL", "300"))
 SHARED_SECRET = os.getenv("SERVER_TO_PROVIDER_KEY")
 HOST: str = os.getenv("HOST", "0.0.0.0")
 PORT: int = int(os.getenv("PORT", "8000"))
-MODEL_KEY: str = os.getenv("MODEL", "RoyalCities/Foundation-1")
+MODEL_KEY: str = os.getenv("MODEL", "stable-audio-open-1.0")
 CREDENTIALS_FILE = os.getenv("CREDENTIALS_FILE", "/data/credentials.json")
 SUPPORTED_MODELS = {
-    "RoyalCities/Foundation-1": "RoyalCities/Foundation-1",
+    "stable-audio-open-1.0": "stabilityai/stable-audio-open-1.0",
 }
+
 
 MAX_DURATION = 30
 MIN_DURATION = 2
@@ -234,9 +235,7 @@ class AudioGenerator:
     def load(self):
         from diffusers import StableAudioPipeline
 
-        print(
-            f"⚡ Loading {self.model_id} (Foundation-1 Optimized) on {self.device}..."
-        )
+        print(f"⚡ Loading {self.model_id} on {self.device}...")
 
         if self.device == "cuda":
             from diffusers import (
@@ -249,49 +248,29 @@ class AudioGenerator:
             )
 
             text_encoder = T5EncoderModel.from_pretrained(
-                "stabilityai/stable-audio-open-1.0",
+                self.model_id,
                 subfolder="text_encoder",
                 quantization_config=TransformersBitsAndBytesConfig(load_in_8bit=True),
                 torch_dtype=torch.float16,
             )
-
-            try:
-                transformer = StableAudioDiTModel.from_pretrained(
-                    "stabilityai/stable-audio-open-1.0",
-                    subfolder="transformer",
-                    quantization_config=DiffusersBitsAndBytesConfig(load_in_8bit=True),
-                    torch_dtype=torch.float16,
-                )
-
-                from huggingface_hub import hf_hub_download
-
-                ckpt_path = hf_hub_download(
-                    repo_id="RoyalCities/Foundation-1",
-                    filename="Foundation_1.safetensors",
-                )
-
-                from safetensors.torch import load_file
-
-                state_dict = load_file(ckpt_path)
-                transformer.load_state_dict(state_dict, strict=False)
-
-            except Exception as e:
-                print(f"⚠️ Erreur lors de l'injection des poids: {e}")
-                raise e
-
+            transformer = StableAudioDiTModel.from_pretrained(
+                self.model_id,
+                subfolder="transformer",
+                quantization_config=DiffusersBitsAndBytesConfig(load_in_8bit=True),
+                torch_dtype=torch.float16,
+            )
             self.pipeline = StableAudioPipeline.from_pretrained(
-                "stabilityai/stable-audio-open-1.0",
+                self.model_id,
                 text_encoder=text_encoder,
                 transformer=transformer,
                 torch_dtype=torch.float16,
-                device_map="cuda",
+                device_map="balanced",
             )
-
         else:
             raise RuntimeError("No CUDA GPU available. CPU mode is not allowed.")
 
         self.sample_rate = self.pipeline.vae.sampling_rate
-        print(f"✅ Foundation-1 Loaded (sample rate: {self.sample_rate}Hz)")
+        print(f"✅ Model loaded (sample rate: {self.sample_rate}Hz)")
 
     def unload(self):
         self.pipeline = None
@@ -419,13 +398,7 @@ app = FastAPI(
 
 @app.post("/process", dependencies=[Depends(verify_server_identity)])
 async def process(request: ProcessRequest):
-    global generator
 
-    if generator is None:
-        print("⚠️ Warning: Generator was None in route. Initializing now...")
-        generator = AudioGenerator(model_key=MODEL_KEY)
-        if not LOAD_MODEL_ON_THE_FLY:
-            generator.load()
     if request.action == "health":
         return JSONResponse(
             content={

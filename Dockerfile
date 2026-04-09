@@ -19,16 +19,8 @@ RUN pip install --no-cache-dir torch torchvision torchaudio \
 RUN pip install --no-cache-dir -r requirements.txt
 
 ARG HF_TOKEN
-
-RUN python3 -c "from huggingface_hub import snapshot_download; \
-    snapshot_download(repo_id='stabilityai/stable-audio-open-1.0', \
-    token='${HF_TOKEN}', \
-    ignore_patterns=['*.msgpack', '*.bin'])"
-
-RUN python3 -c "from huggingface_hub import hf_hub_download; \
-    hf_hub_download(repo_id='RoyalCities/Foundation-1', \
-    filename='Foundation_1.safetensors', \
-    token='${HF_TOKEN}')"
+RUN python3 -c "from huggingface_hub import login; login(token='${HF_TOKEN}')" && \
+    python3 -c "from diffusers import StableAudioPipeline; StableAudioPipeline.from_pretrained('stabilityai/stable-audio-open-1.0')"
 
 COPY provider.py .
 
