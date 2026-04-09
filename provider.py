@@ -403,6 +403,9 @@ async def lifespan(app: FastAPI):
         if not LOAD_MODEL_ON_THE_FLY:
             generator.load()
 
+    print(f"  Model  : {generator.model_id}")
+    print(f"  Device : {generator.device}")
+
     yield
 
 
@@ -536,8 +539,6 @@ if __name__ == "__main__":
 
     print(f"\n{'='*55}")
     print(f"  OBSIDIAN Neural Provider")
-    print(f"  Model  : {generator.model_id}")
-    print(f"  Device : {generator.device}")
     print(f"  Host   : {HOST}:{PORT}")
     print(f"  Server : {CENTRAL_SERVER_URL or 'not configured'}")
     print(f"{'='*55}\n")
