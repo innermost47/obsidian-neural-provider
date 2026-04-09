@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import gc
+import re
 import io
 import os
 import time
@@ -127,16 +128,24 @@ async def activate_with_token(token: str, central_url: str) -> dict:
             sys.exit(1)
 
 
+def clean_code_for_hashing(text: str) -> bytes:
+    cleaned = re.sub(r"\s+", "", text)
+    return cleaned.encode("utf-8")
+
+
 def _compute_self_hash() -> str:
     try:
-        with open(__file__, "rb") as f:
-            content = f.read()
-        content = content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-        content = content.replace(b" ", b"").replace(b"\n", b"").replace(b"\t", b"")
+        with open(__file__, "r", encoding="utf-8") as f:
+            local_content = f.read()
+
+        content_bytes = clean_code_for_hashing(local_content)
+
         api_key_hashed = hashlib.sha256(PROVIDER_API_KEY.encode()).hexdigest()
         identity = f"{api_key_hashed}:{SHARED_SECRET}".encode()
-        return hashlib.sha256(content + identity).hexdigest()
-    except Exception:
+
+        return hashlib.sha256(content_bytes + identity).hexdigest()
+    except Exception as e:
+        print(f"❌ Hash calculation error: {e}")
         return "unknown"
 
 
