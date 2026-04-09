@@ -489,7 +489,8 @@ if __name__ == "__main__":
     if args.server:
         CENTRAL_SERVER_URL = args.server
 
-    LOAD_MODEL_ON_THE_FLY = args.on_the_fly or os.getenv("LOAD_ON_THE_FLY", "false")
+    env_val = os.getenv("LOAD_ON_THE_FLY", "false").lower()
+    LOAD_MODEL_ON_THE_FLY = args.on_the_fly or env_val == "true"
 
     if MODEL_KEY not in SUPPORTED_MODELS:
         print(
