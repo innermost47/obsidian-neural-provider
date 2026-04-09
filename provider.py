@@ -375,7 +375,7 @@ class AudioGenerator:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global PROVIDER_API_KEY, SHARED_SECRET, SELF_HASH
+    global PROVIDER_API_KEY, SHARED_SECRET, SELF_HASH, generator
 
     obsidian_token = os.getenv("OBSIDIAN_TOKEN", "")
     if obsidian_token:
@@ -397,6 +397,11 @@ async def lifespan(app: FastAPI):
 
     hb_thread = threading.Thread(target=send_heartbeat_sync, daemon=True)
     hb_thread.start()
+
+    if generator is None:
+        generator = AudioGenerator(model_key=MODEL_KEY)
+        if not LOAD_MODEL_ON_THE_FLY:
+            generator.load()
 
     yield
 
@@ -528,10 +533,6 @@ if __name__ == "__main__":
             "   Minimum requirement: NVIDIA RTX 3070 (8GB VRAM) or RTX 3060 (4GB VRAM) for the small model."
         )
         exit(1)
-
-    generator = AudioGenerator(model_key=MODEL_KEY)
-    if not LOAD_MODEL_ON_THE_FLY:
-        generator.load()
 
     print(f"\n{'='*55}")
     print(f"  OBSIDIAN Neural Provider")
