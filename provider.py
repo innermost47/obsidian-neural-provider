@@ -144,6 +144,7 @@ def connect_to_central_registry():
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    attempts = 0
 
     while True:
         if not CENTRAL_SERVER_URL or not PROVIDER_API_KEY:
@@ -178,6 +179,14 @@ def connect_to_central_registry():
                 loop.run_until_complete(websocket.recv())
 
         except Exception as e:
+            attempts += 1
+            if attempts > 3:
+                print(
+                    f"\nCritical Error: Failed to connect to registry after {attempts} attempts."
+                )
+                print(f"Details: {e}")
+                print("Exiting process...")
+                exit(1)
             print(f"❌ Register disconnection (Error: {e})")
             print("🔄 Attempting to reconnect in 10 seconds...")
             time.sleep(10)
@@ -471,7 +480,7 @@ if __name__ == "__main__":
     if args.server:
         CENTRAL_SERVER_URL = args.server
 
-    LOAD_MODEL_ON_THE_FLY = args.on_the_fly
+    LOAD_MODEL_ON_THE_FLY = args.on_the_fly or os.getenv("LOAD_ON_THE_FLY", "false")
 
     if MODEL_KEY not in SUPPORTED_MODELS:
         print(
