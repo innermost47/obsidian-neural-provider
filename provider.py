@@ -234,7 +234,9 @@ class AudioGenerator:
     def load(self):
         from diffusers import StableAudioPipeline
 
-        print(f"⚡ Loading {self.model_id} on {self.device}...")
+        print(
+            f"⚡ Loading {self.model_id} (Foundation-1 Optimized) on {self.device}..."
+        )
 
         if self.device == "cuda":
             from diffusers import (
@@ -247,29 +249,49 @@ class AudioGenerator:
             )
 
             text_encoder = T5EncoderModel.from_pretrained(
-                self.model_id,
+                "stabilityai/stable-audio-open-1.0",
                 subfolder="text_encoder",
                 quantization_config=TransformersBitsAndBytesConfig(load_in_8bit=True),
                 torch_dtype=torch.float16,
             )
-            transformer = StableAudioDiTModel.from_pretrained(
-                self.model_id,
-                subfolder="transformer",
-                quantization_config=DiffusersBitsAndBytesConfig(load_in_8bit=True),
-                torch_dtype=torch.float16,
-            )
+
+            try:
+                transformer = StableAudioDiTModel.from_pretrained(
+                    "stabilityai/stable-audio-open-1.0",
+                    subfolder="transformer",
+                    quantization_config=DiffusersBitsAndBytesConfig(load_in_8bit=True),
+                    torch_dtype=torch.float16,
+                )
+
+                from huggingface_hub import hf_hub_download
+
+                ckpt_path = hf_hub_download(
+                    repo_id="RoyalCities/Foundation-1",
+                    filename="Foundation_1.safetensors",
+                )
+
+                from safetensors.torch import load_file
+
+                state_dict = load_file(ckpt_path)
+                transformer.load_state_dict(state_dict, strict=False)
+
+            except Exception as e:
+                print(f"⚠️ Erreur lors de l'injection des poids: {e}")
+                raise e
+
             self.pipeline = StableAudioPipeline.from_pretrained(
-                self.model_id,
+                "stabilityai/stable-audio-open-1.0",
                 text_encoder=text_encoder,
                 transformer=transformer,
                 torch_dtype=torch.float16,
-                device_map="balanced",
+                device_map="auto",
             )
+
         else:
             raise RuntimeError("No CUDA GPU available. CPU mode is not allowed.")
 
         self.sample_rate = self.pipeline.vae.sampling_rate
-        print(f"✅ Model loaded (sample rate: {self.sample_rate}Hz)")
+        print(f"✅ Foundation-1 Loaded (sample rate: {self.sample_rate}Hz)")
 
     def unload(self):
         self.pipeline = None
