@@ -37,7 +37,7 @@ PORT: int = int(os.getenv("PORT", "8000"))
 MODEL_KEY: str = os.getenv("MODEL", "RoyalCities/Foundation-1")
 CREDENTIALS_FILE = os.getenv("CREDENTIALS_FILE", "/data/credentials.json")
 SUPPORTED_MODELS = {
-    "Foundation-1": "RoyalCities/Foundation-1",
+    "RoyalCities/Foundation-1": "RoyalCities/Foundation-1",
 }
 
 MAX_DURATION = 30
