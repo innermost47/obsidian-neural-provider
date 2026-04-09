@@ -419,7 +419,13 @@ app = FastAPI(
 
 @app.post("/process", dependencies=[Depends(verify_server_identity)])
 async def process(request: ProcessRequest):
+    global generator
 
+    if generator is None:
+        print("⚠️ Warning: Generator was None in route. Initializing now...")
+        generator = AudioGenerator(model_key=MODEL_KEY)
+        if not LOAD_MODEL_ON_THE_FLY:
+            generator.load()
     if request.action == "health":
         return JSONResponse(
             content={
