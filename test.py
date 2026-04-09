@@ -1,5 +1,6 @@
 import hashlib
 import httpx
+import re
 import sys
 
 GITHUB_URL = "https://raw.githubusercontent.com/innermost47/obsidian-neural-provider/main/provider.py"
@@ -25,13 +26,16 @@ def hash_local(path: str):
 
 
 def diff_stripped(path: str):
-    r = httpx.get(GITHUB_URL, timeout=10)
-    github = r.content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-    with open(path, "rb") as f:
-        local = f.read().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    def clean_code_for_hashing(text: str) -> bytes:
+        cleaned = re.sub(r"\s+", "", text)
+        return cleaned.encode("utf-8")
 
-    github_stripped = github.replace(b" ", b"").replace(b"\n", b"").replace(b"\t", b"")
-    local_stripped = local.replace(b" ", b"").replace(b"\n", b"").replace(b"\t", b"")
+    r = httpx.get(GITHUB_URL, timeout=10)
+    github_stripped = clean_code_for_hashing(r.text)
+
+    with open(path, "r", encoding="utf-8") as f:
+        local_text = f.read()
+    local_stripped = clean_code_for_hashing(local_text)
 
     h_github = hashlib.sha256(github_stripped).hexdigest()
     h_local = hashlib.sha256(local_stripped).hexdigest()
