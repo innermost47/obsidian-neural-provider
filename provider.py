@@ -284,7 +284,7 @@ class AudioGenerator:
                 text_encoder=text_encoder,
                 transformer=transformer,
                 torch_dtype=torch.float16,
-                device_map="auto",
+                device_map="cuda",
             )
 
         else:
