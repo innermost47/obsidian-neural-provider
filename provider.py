@@ -44,7 +44,6 @@ LLM_MODEL = "gemma4:e2b"
 MAX_DURATION = 30
 MIN_DURATION = 2
 TARGET_SAMPLE_RATE = 44100
-LOAD_MODEL_ON_THE_FLY = False
 
 generator: Optional["AudioGenerator"] = None
 
@@ -378,8 +377,7 @@ class AudioGenerator:
 
     def _generate_with_seed(self, prompt: str, duration: int, seed: int) -> bytes:
         try:
-            if LOAD_MODEL_ON_THE_FLY:
-                self.load()
+            self.load()
             duration = max(MIN_DURATION, min(10, duration))
             num_inference_steps = 50
             cfg_scale = 7.0
@@ -438,8 +436,7 @@ class AudioGenerator:
             buf.seek(0)
             return buf.read()
         finally:
-            if LOAD_MODEL_ON_THE_FLY:
-                self.unload()
+            self.unload()
 
 
 @asynccontextmanager
@@ -467,8 +464,6 @@ async def lifespan(app: FastAPI):
 
     if generator is None:
         generator = AudioGenerator(model_key=MODEL_KEY)
-        if not LOAD_MODEL_ON_THE_FLY:
-            generator.load()
 
     print(f"  Model  : {generator.model_id}")
     print(f"  Device : {generator.device}")
@@ -629,11 +624,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--server", default="", help="Central server URL (overrides .env)"
     )
-    parser.add_argument(
-        "--on-the-fly",
-        action="store_true",
-        help="Load Stable Diffusion at each generation process",
-    )
 
     args = parser.parse_args()
 
@@ -645,9 +635,6 @@ if __name__ == "__main__":
         HOST = args.host
     if args.server:
         CENTRAL_SERVER_URL = args.server
-
-    env_val = os.getenv("LOAD_ON_THE_FLY", "false").lower()
-    LOAD_MODEL_ON_THE_FLY = args.on_the_fly or env_val == "true"
 
     if MODEL_KEY not in SUPPORTED_MODELS:
         print(
