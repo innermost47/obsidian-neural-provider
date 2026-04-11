@@ -45,6 +45,8 @@ MAX_DURATION = 30
 MIN_DURATION = 2
 TARGET_SAMPLE_RATE = 44100
 
+_llm_generating: bool = False
+
 generator: Optional["AudioGenerator"] = None
 
 
@@ -490,12 +492,16 @@ async def process(raw: dict):
     action = raw.get("action")
 
     if action == "llm_infer":
+        global _llm_generating
+        if _llm_generating or (generator and generator._generating):
+            raise HTTPException(status_code=503, detail="Provider busy")
         try:
             request = LLMInferRequest(**raw)
         except Exception as e:
             raise HTTPException(status_code=422, detail=str(e))
 
         t0 = time.time()
+        _llm_generating = True
         try:
             llm_response = await ollama_infer(
                 request.system_prompt,
@@ -527,6 +533,8 @@ async def process(raw: dict):
         except Exception as e:
             print(f"❌ LLM infer error: {e}")
             raise HTTPException(status_code=500, detail=f"LLM infer failed: {str(e)}")
+        finally:
+            _llm_generating = False
 
     if action in ("health", "status", "generate"):
         try:
@@ -544,7 +552,11 @@ async def process(raw: dict):
             )
 
         elif request.action == "status":
-            is_available = generator is not None and not generator._generating
+            is_available = (
+                generator is not None
+                and not generator._generating
+                and not _llm_generating
+            )
             vram_info = {}
             if torch.cuda.is_available():
                 vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
@@ -561,6 +573,7 @@ async def process(raw: dict):
                     "model_id": generator.model_id,
                     "device": generator.device,
                     "generating": generator._generating if generator else False,
+                    "generating_llm": _llm_generating,
                     **vram_info,
                 }
             )
