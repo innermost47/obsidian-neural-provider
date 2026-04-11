@@ -21,7 +21,6 @@ from fastapi.responses import Response, PlainTextResponse, JSONResponse
 from pydantic import BaseModel, field_validator
 import websockets
 import sys
-import hashlib
 
 
 if sys.platform == "win32":
@@ -129,27 +128,6 @@ async def activate_with_token(token: str, central_url: str) -> dict:
             sys.exit(1)
 
 
-def clean_code_for_hashing(text: str) -> bytes:
-    cleaned = re.sub(r"\s+", "", text)
-    return cleaned.encode("utf-8")
-
-
-def _compute_self_hash() -> str:
-    try:
-        with open(__file__, "r", encoding="utf-8") as f:
-            local_content = f.read()
-
-        content_bytes = clean_code_for_hashing(local_content)
-
-        api_key_hashed = hashlib.sha256(PROVIDER_API_KEY.encode()).hexdigest()
-        identity = f"{api_key_hashed}:{SHARED_SECRET}".encode()
-
-        return hashlib.sha256(content_bytes + identity).hexdigest()
-    except Exception as e:
-        print(f"❌ Hash calculation error: {e}")
-        return "unknown"
-
-
 def connect_to_central_registry():
 
     loop = asyncio.new_event_loop()
@@ -172,7 +150,6 @@ def connect_to_central_registry():
             headers = {
                 "X-Provider-Key": PROVIDER_API_KEY,
                 "X-Model": MODEL_KEY,
-                "X-Provider-Hash": SELF_HASH,
             }
             print(f"🔌 Attempting to connect to the central registry: {uri}...")
             websocket = loop.run_until_complete(
@@ -213,7 +190,6 @@ def send_heartbeat_sync():
                     f"{CENTRAL_SERVER_URL.rstrip('/')}/api/v1/providers/heartbeat",
                     headers={
                         "X-API-Key": PROVIDER_API_KEY,
-                        "X-Provider-Hash": SELF_HASH,
                     },
                     json=True,
                 )
@@ -354,7 +330,7 @@ class AudioGenerator:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global PROVIDER_API_KEY, SHARED_SECRET, SELF_HASH, generator
+    global PROVIDER_API_KEY, SHARED_SECRET, generator
 
     obsidian_token = os.getenv("OBSIDIAN_TOKEN", "")
     if obsidian_token:
@@ -368,8 +344,6 @@ async def lifespan(app: FastAPI):
         if not PROVIDER_API_KEY or not SHARED_SECRET:
             print("❌ PROVIDER_API_KEY and SERVER_TO_PROVIDER_KEY required in .env")
             sys.exit(1)
-
-    SELF_HASH = _compute_self_hash()
 
     ws_thread = threading.Thread(target=connect_to_central_registry, daemon=True)
     ws_thread.start()
@@ -406,7 +380,6 @@ async def process(request: ProcessRequest):
                 "model": generator.model_key,
                 "model_id": generator.model_id,
             },
-            headers={"X-Provider-Hash": SELF_HASH},
         )
 
     elif request.action == "status":
@@ -428,8 +401,7 @@ async def process(request: ProcessRequest):
                 "device": generator.device,
                 "generating": generator._generating if generator else False,
                 **vram_info,
-            },
-            headers={"X-Provider-Hash": SELF_HASH},
+            }
         )
 
     elif request.action == "generate":
@@ -460,7 +432,6 @@ async def process(request: ProcessRequest):
                     "X-Duration": str(duration),
                     "X-Sample-Rate": str(TARGET_SAMPLE_RATE),
                     "X-Seed": str(request.seed),
-                    "X-Provider-Hash": SELF_HASH,
                 },
             )
         except Exception as e:
