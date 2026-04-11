@@ -273,6 +273,7 @@ def connect_to_central_registry():
                     ping_timeout=60,
                 )
             )
+            attempts = 0
             print("✅ Connected to the central server (Active presence)")
 
             while True:
