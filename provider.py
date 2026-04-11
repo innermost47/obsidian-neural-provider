@@ -157,10 +157,13 @@ class LLMInferRequest(BaseModel):
 
 class LLMInferResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    system_prompt: str
+    history: list[ConversationMessage]
+    user_message: str
     response: str
     model: str
-    embeddings: dict[str, list[float]]
     provider_key: str
+    response_embedding: list[float]
 
 
 async def verify_server_identity(x_api_key: str = Header(None)):
@@ -501,27 +504,16 @@ async def process(raw: dict):
                 request.image_base64,
             )
 
-            embed_tasks = {"system": ollama_embed(request.system_prompt)}
-
-            for i, msg in enumerate(request.history):
-                embed_tasks[f"history_{i}_{msg.role}"] = ollama_embed(msg.content)
-
-            embed_tasks["user"] = ollama_embed(request.user_message)
-            embed_tasks["response"] = ollama_embed(llm_response)
-
-            keys = list(embed_tasks.keys())
-            results = await asyncio.gather(*[embed_tasks[k] for k in keys])
-            embeddings = dict(zip(keys, results))
-
-            print(
-                f"✅ LLM infer done in {time.time() - t0:.1f}s ({len(embeddings)} embeddings)"
-            )
+            print(f"✅ LLM infer done in {time.time() - t0:.1f}s")
 
             return LLMInferResponse(
+                system_prompt=request.system_prompt,
+                history=request.history,
+                user_message=request.user_message,
                 response=llm_response,
                 model=LLM_MODEL,
-                embeddings=embeddings,
                 provider_key=PROVIDER_API_KEY,
+                embedding=await ollama_embed(llm_response),
             )
 
         except httpx.ConnectError:
