@@ -216,29 +216,34 @@ async def ollama_infer(
     user_message: str,
     image_base64: Optional[str] = None,
 ) -> str:
-    client = ollama.AsyncClient()
+    try:
+        client = ollama.AsyncClient()
 
-    messages = [{"role": "system", "content": system_prompt}]
+        messages = [{"role": "system", "content": system_prompt}]
 
-    for msg in history:
-        messages.append({"role": msg.role, "content": msg.content})
+        for msg in history:
+            messages.append({"role": msg.role, "content": msg.content})
 
-    if image_base64:
-        messages.append(
-            {
-                "role": "user",
-                "content": user_message,
-                "images": [image_base64],
-            }
+        if image_base64:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": user_message,
+                    "images": [image_base64],
+                }
+            )
+        else:
+            messages.append({"role": "user", "content": user_message})
+
+        response = await client.chat(
+            model=LLM_MODEL,
+            messages=messages,
         )
-    else:
-        messages.append({"role": "user", "content": user_message})
-
-    response = await client.chat(
-        model=LLM_MODEL,
-        messages=messages,
-    )
-    return response.message.content
+        return response.message.content
+    finally:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
 
 
 def connect_to_central_registry():
