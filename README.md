@@ -19,16 +19,18 @@ OBSIDIAN Neural is an open source VST3/AU plugin for real-time AI music generati
 ## How it works
 
 ```
-
 Musician in their DAW
-↓ types a prompt
+↓ types a prompt or draws on the canvas
 OBSIDIAN Neural central server
 ↓ finds an available GPU in the pool
 Your machine (provider)
-↓ generates audio with Stable Audio
-↓ returns validated WAV
+├── LLM inference (Gemma 4 via Ollama)
+│       ↓ optimizes the prompt / analyzes the drawing
+│       ↓ returns structured JSON response
+└── Audio generation (Stable Audio)
+        ↓ generates audio from the optimized prompt
+        ↓ returns validated WAV
 Musician receives the sound in real time
-
 ```
 
 Subscription revenue is redistributed **equally** among all eligible providers each month via Stripe Connect, after deduction of a 15% platform fee covering infrastructure costs (fal.ai, hosting, maintenance). This fee is published publicly each month.
@@ -37,7 +39,7 @@ Subscription revenue is redistributed **equally** among all eligible providers e
 
 ## Requirements
 
-| Component  | `stable-audio-open-1.0`              |
+| Component  | Specification                        |
 | ---------- | ------------------------------------ |
 | NVIDIA GPU | RTX 3070+ (8 GB VRAM)                |
 | RAM        | 16 GB                                |
@@ -47,11 +49,26 @@ Subscription revenue is redistributed **equally** among all eligible providers e
 
 ---
 
+## What your provider runs
+
+Each provider runs two inference stacks simultaneously:
+
+| Stack | Model                               | Purpose                                                  |
+| ----- | ----------------------------------- | -------------------------------------------------------- |
+| Audio | `stabilityai/stable-audio-open-1.0` | WAV generation from optimized prompts                    |
+| LLM   | `gemma4:e2b` via Ollama             | Prompt optimization + drawing-to-sound analysis (vision) |
+
+Both models are bundled in the Docker image — no download required at runtime.
+
+**Jobs are mutually exclusive** — your provider cannot accept an LLM request while generating audio, and vice versa. The central server handles scheduling automatically.
+
+---
+
 ## Quick start
 
 ### 1 — Benchmark your GPU
 
-Before anything, verify your GPU is fast enough. The model is bundled in the image — no download required:
+Before anything, verify your GPU is fast enough:
 
 ```bash
 docker run --rm --gpus all \
@@ -267,6 +284,7 @@ The container:
 - Activates itself automatically with your token on first start
 - Saves credentials locally for subsequent restarts — no re-activation needed
 - Connects to the central server via WebSocket and starts accepting jobs
+- Starts Ollama automatically and loads `gemma4:e2b` for LLM inference
 
 ---
 
@@ -279,10 +297,14 @@ docker logs -f obsidian-provider
 You should see:
 
 ```
+🦙 Starting Ollama...
+✅ Ollama ready
 🔑 Activating provider with token...
 ✅ Activated as: your-provider-name
 🔌 Attempting to connect to the central registry...
 ✅ Connected to the central server (Active presence)
+⚡ Loading stabilityai/stable-audio-open-1.0 on cuda...
+✅ Model loaded (sample rate: 44100Hz)
 ```
 
 ---
@@ -301,17 +323,34 @@ cosign verify --key cosign.pub innermost47/obsidian-neural-provider:latest
 
 ## Models
 
-| Model                   | VRAM    | Quality | Speed (RTX 3070) | Size  |
-| ----------------------- | ------- | ------- | ---------------- | ----- |
-| `stable-audio-open-1.0` | ~7-8 GB | ⭐⭐⭐  | ~10-15s          | ~5 GB |
+| Model                               | VRAM    | Purpose                | Size  |
+| ----------------------------------- | ------- | ---------------------- | ----- |
+| `stabilityai/stable-audio-open-1.0` | ~7-8 GB | Audio generation       | ~5 GB |
+| `gemma4:e2b` (Ollama)               | ~3-4 GB | LLM inference + vision | ~3 GB |
 
-The model is bundled in the Docker image — no download required at runtime.
+Both models are bundled in the Docker image — no download required at runtime.
+
+---
+
+## Security & verification
+
+The central server applies multiple layers of verification to ensure providers run genuine, unmodified models:
+
+**Audio proof-of-work** — periodic mel spectrogram fingerprint comparisons against an encrypted reference bank. A provider running a different model or faking responses will fail these checks and be banned after 3 consecutive failures.
+
+**LLM conversation echo** — for every LLM request, the central server sends the full conversation (system prompt + history + user message) and expects it back verbatim alongside the response. Any mismatch results in an **immediate ban**.
+
+**LLM semantic monitoring** — cosine similarity between user prompts and provider responses is computed locally on the central server and logged per provider. Providers that systematically return semantically inconsistent responses are flagged for review.
+
+**Canary tests** — random invalid requests are sent at unpredictable times to verify that validation logic has not been tampered with. Accepting a canary request results in an **immediate ban**.
+
+All ban events are logged publicly. Your server only receives optimized prompts — never user personal data.
 
 ---
 
 ## Heartbeat
 
-The provider automatically sends a heartbeat to the central server every 5 minutes. This lets the central server know your machine is online, independently of random verification pings.
+The provider automatically sends a heartbeat to the central server every 5 minutes, updating its online status independently of verification pings.
 
 ---
 
@@ -336,18 +375,7 @@ Example with 180€ and 6 providers:
 1. **Presence** — worked ≥ 8h on at least 80% of your active days that month, AND accumulated ≥ 80% of your total expected hours. Providers who joined mid-month are evaluated proportionally from their join date.
 2. **Activity** — processed at least 1 real job during the month (not a fal.ai fallback)
 
-Pings and canary tests are sent at **random times** to prevent any form of scheduled cheating. The platform fee and redistributed amounts are published publicly each month on the central server.
-
----
-
-## Security
-
-- Your server only receives the optimized prompt — never user personal data
-- The central server validates every WAV via FFmpeg before sending it to the musician
-- An invalid WAV results in an **immediate ban**
-- Your credentials are stored locally in a Docker volume (`/data/credentials.json`) and never transmitted after activation
-- All communication uses HTTPS + WSS — never plain HTTP
-- The image is signed with Cosign — verify it before running (see above)
+Pings and canary tests are sent at **random times** to prevent any form of scheduled cheating. The platform fee and redistributed amounts are published publicly each month.
 
 ---
 
@@ -371,6 +399,7 @@ A HuggingFace account and acceptance of the [Stable Audio Open 1.0 license](http
 obsidian-neural-provider/
 ├── provider.py
 ├── benchmark.py
+├── entrypoint.sh
 ├── requirements.txt
 ├── Dockerfile
 ├── cosign.pub
