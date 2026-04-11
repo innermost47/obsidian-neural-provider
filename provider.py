@@ -20,6 +20,7 @@ from fastapi.responses import Response, PlainTextResponse, JSONResponse
 from pydantic import BaseModel, field_validator, ConfigDict
 import websockets
 import sys
+import ollama
 
 
 if sys.platform == "win32":
