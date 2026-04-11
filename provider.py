@@ -166,7 +166,6 @@ class LLMInferResponse(BaseModel):
     response: str
     model: str
     provider_key: str
-    response_embedding: list[float]
 
 
 async def verify_server_identity(x_api_key: str = Header(None)):
@@ -203,15 +202,6 @@ async def activate_with_token(token: str, central_url: str) -> dict:
         except Exception as e:
             print(f"❌ Cannot reach central server: {e}")
             sys.exit(1)
-
-
-async def ollama_embed(text: str) -> list[float]:
-    client = ollama.AsyncClient()
-    response = await client.embeddings(
-        model=LLM_MODEL,
-        prompt=text,
-    )
-    return response.embedding
 
 
 async def ollama_infer(
@@ -520,7 +510,6 @@ async def process(raw: dict):
                 response=llm_response,
                 model=LLM_MODEL,
                 provider_key=PROVIDER_API_KEY,
-                embedding=await ollama_embed(llm_response),
             )
 
         except httpx.ConnectError:
