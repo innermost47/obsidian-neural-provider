@@ -1,7 +1,6 @@
 import argparse
 import asyncio
 import gc
-import re
 import io
 import os
 import time
@@ -39,7 +38,8 @@ CREDENTIALS_FILE = os.getenv("CREDENTIALS_FILE", "/data/credentials.json")
 SUPPORTED_MODELS = {
     "stable-audio-open-1.0": "stabilityai/stable-audio-open-1.0",
 }
-
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+LLM_MODEL = "gemma4:e2b"
 
 MAX_DURATION = 30
 MIN_DURATION = 2
@@ -49,7 +49,7 @@ LOAD_MODEL_ON_THE_FLY = False
 generator: Optional["AudioGenerator"] = None
 
 
-class ProcessRequest(BaseModel):
+class AudioProcessRequest(BaseModel):
     action: str
     prompt: Optional[str] = None
     duration: Optional[int] = 10
@@ -92,6 +92,80 @@ class ProcessRequest(BaseModel):
         return v
 
 
+class ConversationMessage(BaseModel):
+    role: str
+    content: str
+
+    class Config:
+        extra = "forbid"
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v):
+        if v not in ("system", "user", "assistant"):
+            raise ValueError("role must be 'system', 'user', or 'assistant'")
+        return v
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, v):
+        if not v or not v.strip():
+            raise ValueError("content cannot be empty")
+        if len(v) > 32000:
+            raise ValueError("content exceeds 32000 characters")
+        return v
+
+
+class LLMInferRequest(BaseModel):
+    action: str
+    system_prompt: str
+    history: list[ConversationMessage] = []
+    user_message: str
+    image_base64: Optional[str] = None
+
+    class Config:
+        extra = "forbid"
+
+    @field_validator("system_prompt")
+    @classmethod
+    def validate_system_prompt(cls, v):
+        if not v or not v.strip():
+            raise ValueError("system_prompt cannot be empty")
+        if len(v) > 32000:
+            raise ValueError("system_prompt exceeds 32000 characters")
+        return v
+
+    @field_validator("user_message")
+    @classmethod
+    def validate_user_message(cls, v):
+        if not v or not v.strip():
+            raise ValueError("user_message cannot be empty")
+        if len(v) > 8000:
+            raise ValueError("user_message exceeds 8000 characters")
+        return v
+
+    @field_validator("image_base64")
+    @classmethod
+    def validate_image_base64(cls, v):
+        if v is not None:
+            import base64
+
+            try:
+                base64.b64decode(v, validate=True)
+            except Exception:
+                raise ValueError("image_base64 is not valid base64")
+            if len(v) > 13_600_000:
+                raise ValueError("image_base64 exceeds 10MB")
+        return v
+
+
+class LLMInferResponse(BaseModel):
+    response: str
+    model: str
+    embeddings: dict[str, list[float]]
+    provider_key: str
+
+
 async def verify_server_identity(x_api_key: str = Header(None)):
     if not SHARED_SECRET or x_api_key != SHARED_SECRET:
         raise HTTPException(
@@ -128,8 +202,47 @@ async def activate_with_token(token: str, central_url: str) -> dict:
             sys.exit(1)
 
 
-def connect_to_central_registry():
+async def ollama_embed(text: str) -> list[float]:
+    client = ollama.AsyncClient()
+    response = await client.embeddings(
+        model=LLM_MODEL,
+        prompt=text,
+    )
+    return response.embedding
 
+
+async def ollama_infer(
+    system_prompt: str,
+    history: list[ConversationMessage],
+    user_message: str,
+    image_base64: Optional[str] = None,
+) -> str:
+    client = ollama.AsyncClient()
+
+    messages = [{"role": "system", "content": system_prompt}]
+
+    for msg in history:
+        messages.append({"role": msg.role, "content": msg.content})
+
+    if image_base64:
+        messages.append(
+            {
+                "role": "user",
+                "content": user_message,
+                "images": [image_base64],
+            }
+        )
+    else:
+        messages.append({"role": "user", "content": user_message})
+
+    response = await client.chat(
+        model=LLM_MODEL,
+        messages=messages,
+    )
+    return response.message.content
+
+
+def connect_to_central_registry():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     attempts = 0
@@ -371,72 +484,135 @@ app = FastAPI(
 
 
 @app.post("/process", dependencies=[Depends(verify_server_identity)])
-async def process(request: ProcessRequest):
+async def process(raw: dict):
+    action = raw.get("action")
 
-    if request.action == "health":
-        return JSONResponse(
-            content={
-                "status": "ok",
-                "model": generator.model_key,
-                "model_id": generator.model_id,
-            },
-        )
-
-    elif request.action == "status":
-        is_available = generator is not None and not generator._generating
-        vram_info = {}
-        if torch.cuda.is_available():
-            vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
-            vram_used = torch.cuda.memory_allocated(0) / 1024**3
-            vram_info = {
-                "vram_total_gb": round(vram_total, 1),
-                "vram_used_gb": round(vram_used, 1),
-            }
-        return JSONResponse(
-            content={
-                "available": is_available,
-                "api_key": PROVIDER_API_KEY,
-                "model": generator.model_key,
-                "model_id": generator.model_id,
-                "device": generator.device,
-                "generating": generator._generating if generator else False,
-                **vram_info,
-            }
-        )
-
-    elif request.action == "generate":
-        if generator is None:
-            raise HTTPException(status_code=503, detail="Model not loaded")
-        if generator._generating:
-            raise HTTPException(
-                status_code=503, detail="Already generating — try again later"
-            )
-
-        duration = max(MIN_DURATION, min(MAX_DURATION, request.duration))
-
+    if action == "llm_infer":
         try:
-            loop = asyncio.get_event_loop()
-            wav_bytes = await loop.run_in_executor(
-                None,
-                generator.generate_with_seed,
-                request.prompt,
-                duration,
-                request.seed,
+            request = LLMInferRequest(**raw)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+        t0 = time.time()
+        try:
+            llm_response = await ollama_infer(
+                request.system_prompt,
+                request.history,
+                request.user_message,
+                request.image_base64,
             )
-            return Response(
-                content=wav_bytes,
-                media_type="audio/wav",
-                headers={
-                    "X-Provider-Key": PROVIDER_API_KEY,
-                    "X-Model": generator.model_key,
-                    "X-Duration": str(duration),
-                    "X-Sample-Rate": str(TARGET_SAMPLE_RATE),
-                    "X-Seed": str(request.seed),
-                },
+
+            embed_tasks = {"system": ollama_embed(request.system_prompt)}
+
+            for i, msg in enumerate(request.history):
+                embed_tasks[f"history_{i}_{msg.role}"] = ollama_embed(msg.content)
+
+            embed_tasks["user"] = ollama_embed(request.user_message)
+            embed_tasks["response"] = ollama_embed(llm_response)
+
+            keys = list(embed_tasks.keys())
+            results = await asyncio.gather(*[embed_tasks[k] for k in keys])
+            embeddings = dict(zip(keys, results))
+
+            print(
+                f"✅ LLM infer done in {time.time() - t0:.1f}s ({len(embeddings)} embeddings)"
+            )
+
+            return LLMInferResponse(
+                response=llm_response,
+                model=LLM_MODEL,
+                embeddings=embeddings,
+                provider_key=PROVIDER_API_KEY,
+            )
+
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503, detail="Ollama not reachable on provider"
+            )
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=502, detail=f"Ollama error: {e.response.text}"
             )
         except Exception as e:
-            print(f"❌ Generation error: {e}")
-            raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+            print(f"❌ LLM infer error: {e}")
+            raise HTTPException(status_code=500, detail=f"LLM infer failed: {str(e)}")
+
+    if action in ("health", "status", "generate"):
+        try:
+            request = AudioProcessRequest(**raw)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+        if request.action == "health":
+            return JSONResponse(
+                content={
+                    "status": "ok",
+                    "model": generator.model_key,
+                    "model_id": generator.model_id,
+                }
+            )
+
+        elif request.action == "status":
+            is_available = generator is not None and not generator._generating
+            vram_info = {}
+            if torch.cuda.is_available():
+                vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                vram_used = torch.cuda.memory_allocated(0) / 1024**3
+                vram_info = {
+                    "vram_total_gb": round(vram_total, 1),
+                    "vram_used_gb": round(vram_used, 1),
+                }
+            return JSONResponse(
+                content={
+                    "available": is_available,
+                    "api_key": PROVIDER_API_KEY,
+                    "model": generator.model_key,
+                    "model_id": generator.model_id,
+                    "device": generator.device,
+                    "generating": generator._generating if generator else False,
+                    **vram_info,
+                }
+            )
+
+        elif request.action == "generate":
+            if generator is None:
+                raise HTTPException(status_code=503, detail="Model not loaded")
+            if generator._generating:
+                raise HTTPException(
+                    status_code=503, detail="Already generating — try again later"
+                )
+
+            duration = max(MIN_DURATION, min(MAX_DURATION, request.duration))
+
+            try:
+                loop = asyncio.get_event_loop()
+                wav_bytes = await loop.run_in_executor(
+                    None,
+                    generator.generate_with_seed,
+                    request.prompt,
+                    duration,
+                    request.seed,
+                )
+                return Response(
+                    content=wav_bytes,
+                    media_type="audio/wav",
+                    headers={
+                        "X-Provider-Key": PROVIDER_API_KEY,
+                        "X-Model": generator.model_key,
+                        "X-Duration": str(duration),
+                        "X-Sample-Rate": str(TARGET_SAMPLE_RATE),
+                        "X-Seed": str(request.seed),
+                    },
+                )
+            except Exception as e:
+                print(f"❌ Generation error: {e}")
+                raise HTTPException(
+                    status_code=500, detail=f"Generation failed: {str(e)}"
+                )
+    raise HTTPException(
+        status_code=422,
+        detail=f"Unknown action '{action}'. Valid: health, status, generate, llm_infer",
+    )
 
 
 @app.get("/", response_class=PlainTextResponse)
