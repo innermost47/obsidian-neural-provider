@@ -17,7 +17,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Header, Depends, status as fastapi_status
 from fastapi.responses import Response, PlainTextResponse, JSONResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, ConfigDict
 import websockets
 import sys
 
@@ -54,8 +54,7 @@ class AudioProcessRequest(BaseModel):
     duration: Optional[int] = 10
     seed: Optional[int] = None
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("action")
     @classmethod
@@ -95,8 +94,7 @@ class ConversationMessage(BaseModel):
     role: str
     content: str
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("role")
     @classmethod
@@ -122,8 +120,7 @@ class LLMInferRequest(BaseModel):
     user_message: str
     image_base64: Optional[str] = None
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("system_prompt")
     @classmethod
@@ -159,6 +156,7 @@ class LLMInferRequest(BaseModel):
 
 
 class LLMInferResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     response: str
     model: str
     embeddings: dict[str, list[float]]
