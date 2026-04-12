@@ -1,5 +1,4 @@
-FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
-
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV HF_HOME=/root/.cache/huggingface
@@ -8,15 +7,12 @@ ENV OLLAMA_MODELS=/root/.ollama/models
 
 RUN apt-get update && apt-get install -y \
     python3.11 python3.11-venv python3-pip \
-    ffmpeg libsndfile1 \
-    curl \
-    zstd \
+    ffmpeg libsndfile1 curl zstd \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
 WORKDIR /app
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir torch torchvision torchaudio \
     --index-url https://download.pytorch.org/whl/cu121
@@ -31,8 +27,8 @@ RUN ollama serve & \
     ollama pull gemma4:e2b && \
     pkill ollama || true
 
+FROM base AS final
 COPY provider.py .
 COPY entrypoint.sh .
 RUN sed -i 's/\r//' entrypoint.sh && chmod +x entrypoint.sh
-
 CMD ["./entrypoint.sh"]
