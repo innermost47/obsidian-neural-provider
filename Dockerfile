@@ -1,6 +1,4 @@
-FROM innermost47/obsidian-neural-provider:base AS base
-
-FROM base AS final
+FROM innermost47/obsidian-neural-provider:base
 WORKDIR /app
 COPY provider.py .
 COPY entrypoint.sh .

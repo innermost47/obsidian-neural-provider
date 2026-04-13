@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
-    update-alternatives --install /usr/bin/python python python /usr/bin/python3.10 1
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
 
 RUN curl -fsSL https://ollama.com/install.sh | sh
 WORKDIR /app
