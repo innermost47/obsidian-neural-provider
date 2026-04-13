@@ -460,7 +460,7 @@ class Foundation1Generator:
                 audio_np = audio_np / max_val * 0.9
 
             buf = io.BytesIO()
-            sf.write(buf, audio_np, sample_rate, format="WAV", channels=2)
+            sf.write(buf, audio_np, sample_rate, format="WAV")
             buf.seek(0)
             return buf.read(), snapped_bpm
 
@@ -612,7 +612,7 @@ class AudioGenerator:
                 audio = audio.T
 
             buf = io.BytesIO()
-            sf.write(buf, audio, TARGET_SAMPLE_RATE, format="WAV", channels=2)
+            sf.write(buf, audio, TARGET_SAMPLE_RATE, format="WAV")
             buf.seek(0)
             return buf.read()
         finally:
