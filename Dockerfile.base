@@ -28,7 +28,7 @@ RUN pip install --no-cache-dir torch torchvision torchaudio \
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN pip install --no-cache-dir stable-audio-tools --no-deps
+RUN pip install --no-cache-dir stable-audio-tools
 RUN pip install --no-cache-dir einops safetensors
 
 ARG HF_TOKEN
@@ -40,9 +40,3 @@ RUN ollama serve & \
     sleep 5 && \
     ollama pull gemma4:e2b && \
     pkill ollama || true
-
-FROM base AS final
-COPY provider.py .
-COPY entrypoint.sh .
-RUN sed -i 's/\r//' entrypoint.sh && chmod +x entrypoint.sh
-CMD ["./entrypoint.sh"]
