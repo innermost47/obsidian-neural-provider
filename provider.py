@@ -459,8 +459,13 @@ class Foundation1Generator:
             if max_val > 0:
                 audio_np = audio_np / max_val * 0.9
 
+            if audio_np.ndim == 2 and audio_np.shape[0] == 2:
+                audio_to_write = np.ascontiguousarray(audio_np.T)
+            else:
+                audio_to_write = audio_np
+
             buf = io.BytesIO()
-            sf.write(buf, audio_np, sample_rate, format="WAV")
+            sf.write(buf, audio_to_write, sample_rate, format="WAV", subtype="PCM_16")
             buf.seek(0)
             return buf.read(), snapped_bpm
 
