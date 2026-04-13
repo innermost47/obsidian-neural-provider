@@ -8,13 +8,10 @@ from einops import rearrange
 from stable_audio_tools.inference.generation import generate_diffusion_cond
 from stable_audio_tools.models.factory import create_model_from_config
 from stable_audio_tools.models.utils import load_ckpt_state_dict
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
 
-MODEL_CONFIG_PATH = os.environ.get("FOUNDATION_1_CONFIG_FILE")
-MODEL_CKPT_PATH = os.environ.get("FOUNDATION_1_CKPT_PATH")
+MODEL_CONFIG_PATH = "./models/model_config.json"
+MODEL_CKPT_PATH = "./models/Foundation_1.safetensors"
 OUTPUT_DIR = "./benchmark_results"
 STEPS = 75
 CFG_SCALE = 7.0
