@@ -41,14 +41,17 @@ SUPPORTED_MODELS = {
 }
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 LLM_MODEL = "gemma4:e2b"
-
+FOUNDATION1_HF_REPO = "RoyalCities/Foundation-1"
+FOUNDATION1_SUPPORTED_BPM = [100, 110, 120, 128, 130, 140, 150]
 MAX_DURATION = 30
 MIN_DURATION = 2
 TARGET_SAMPLE_RATE = 44100
 
+
 _llm_generating: bool = False
 
 generator: Optional["AudioGenerator"] = None
+foundation1_generator: Optional["Foundation1Generator"] = None
 
 
 class AudioProcessRequest(BaseModel):
@@ -56,6 +59,10 @@ class AudioProcessRequest(BaseModel):
     prompt: Optional[str] = None
     duration: Optional[int] = 10
     seed: Optional[int] = None
+    model: Optional[str] = "stable-audio-open-1.0"
+    bpm: Optional[int] = None
+    bars: Optional[int] = 8
+    key: Optional[str] = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -64,6 +71,21 @@ class AudioProcessRequest(BaseModel):
     def validate_action(cls, v):
         if v not in ("health", "status", "generate"):
             raise ValueError("action must be 'health', 'status', or 'generate'")
+        return v
+
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, v):
+        allowed = {"stable-audio-open-1.0", "foundation-1"}
+        if v not in allowed:
+            raise ValueError(f"model must be one of {allowed}")
+        return v
+
+    @field_validator("bars")
+    @classmethod
+    def validate_bars(cls, v):
+        if v is not None and v not in (4, 8):
+            raise ValueError("bars must be 4 or 8")
         return v
 
     @field_validator("duration")
@@ -86,10 +108,9 @@ class AudioProcessRequest(BaseModel):
 
     @field_validator("seed")
     @classmethod
-    def validate_seed(cls, v, info):
-        if v is not None:
-            if not (0 <= v <= 2**31 - 1):
-                raise ValueError("seed must be between 0 and 2147483647")
+    def validate_seed(cls, v):
+        if v is not None and not (0 <= v <= 2**31 - 1):
+            raise ValueError("seed must be between 0 and 2147483647")
         return v
 
 
@@ -166,6 +187,10 @@ class LLMInferResponse(BaseModel):
     response: str
     model: str
     provider_key: str
+
+
+def sanitize_header(value: str) -> str:
+    return value.encode("latin-1", errors="replace").decode("latin-1")
 
 
 async def verify_server_identity(x_api_key: str = Header(None)):
@@ -310,6 +335,142 @@ def send_heartbeat_sync():
             print(f"⚠️  Heartbeat failed: {e}")
 
 
+def _nearest_supported_bpm(bpm: int) -> int:
+    return min(FOUNDATION1_SUPPORTED_BPM, key=lambda x: abs(x - bpm))
+
+
+class Foundation1Generator:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._generating = False
+
+    def generate(
+        self, prompt: str, bpm: int, bars: int, key: Optional[str], seed: int
+    ) -> bytes:
+        with self._lock:
+            self._generating = True
+            try:
+                return self._generate(prompt, bpm, bars, key, seed)
+            finally:
+                self._generating = False
+
+    def _generate(
+        self, prompt: str, bpm: int, bars: int, key: Optional[str], seed: int
+    ) -> bytes:
+        import math
+        import json as _json
+        from einops import rearrange
+        from huggingface_hub import hf_hub_download
+        from stable_audio_tools.inference.generation import generate_diffusion_cond
+        from stable_audio_tools.models.factory import create_model_from_config
+        from stable_audio_tools.models.utils import load_ckpt_state_dict
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        dtype = (
+            torch.bfloat16
+            if (device.type == "cuda" and torch.cuda.is_bf16_supported())
+            else torch.float16
+        )
+
+        ckpt_path = hf_hub_download(
+            repo_id=FOUNDATION1_HF_REPO, filename="Foundation_1.safetensors"
+        )
+        config_path = hf_hub_download(
+            repo_id=FOUNDATION1_HF_REPO, filename="model_config.json"
+        )
+
+        with open(config_path) as f:
+            model_config = _json.load(f)
+
+        model = create_model_from_config(model_config)
+        state_dict = load_ckpt_state_dict(ckpt_path)
+        model.load_state_dict(state_dict)
+        model.to(device).to(dtype).eval().requires_grad_(False)
+
+        try:
+            sample_rate = model_config["sample_rate"]
+            snapped_bpm = _nearest_supported_bpm(bpm)
+            if snapped_bpm != bpm:
+                print(
+                    f"⚠️  BPM {bpm} → snapped à {snapped_bpm} (stretch géré par le serveur central)"
+                )
+
+            clip_seconds = (60.0 / snapped_bpm) * 4 * bars
+            seconds_int = int(math.ceil(clip_seconds))
+            min_input = getattr(model, "min_input_length", None)
+            target_samples = int(seconds_int * sample_rate)
+            if (
+                isinstance(min_input, int)
+                and min_input > 0
+                and target_samples % min_input != 0
+            ):
+                target_samples += min_input - (target_samples % min_input)
+
+            parts = [prompt]
+            if key:
+                parts.append(key)
+            parts.append(f"{bars} Bars")
+            parts.append(f"{snapped_bpm} BPM")
+            full_prompt = ", ".join(parts)
+            print(f"📝 Foundation-1 prompt: {full_prompt}")
+
+            conditioning = [
+                {
+                    "prompt": full_prompt,
+                    "seconds_start": 0.0,
+                    "seconds_total": float(seconds_int),
+                }
+            ]
+
+            t0 = time.time()
+            audio = generate_diffusion_cond(
+                model,
+                conditioning=conditioning,
+                negative_conditioning=None,
+                steps=75,
+                cfg_scale=7.0,
+                batch_size=1,
+                sample_size=target_samples,
+                sample_rate=sample_rate,
+                seed=seed,
+                device=device,
+                sampler_type="dpmpp-3m-sde",
+                sigma_min=0.03,
+                sigma_max=500,
+                scale_phi=0.0,
+            )
+            print(f"✅ Foundation-1 done in {time.time() - t0:.2f}s")
+
+            audio = rearrange(audio, "b d n -> d (b n)")
+            audio = audio.to(torch.float32).clamp(-1, 1)
+
+            clip_samples = int(round(clip_seconds * sample_rate))
+            audio = audio[:, : max(1, min(audio.shape[-1], clip_samples))].contiguous()
+
+            fade_len = min(int(round(0.015 * sample_rate)), audio.shape[-1])
+            if fade_len > 1:
+                ramp = torch.linspace(
+                    1.0, 0.0, steps=fade_len, device=audio.device, dtype=audio.dtype
+                )
+                audio[:, -fade_len:] *= ramp
+
+            audio_np = audio.cpu().numpy()
+            max_val = np.max(np.abs(audio_np))
+            if max_val > 0:
+                audio_np = audio_np / max_val * 0.9
+
+            buf = io.BytesIO()
+            sf.write(buf, audio_np.T, sample_rate, format="WAV")
+            buf.seek(0)
+            return buf.read(), snapped_bpm
+
+        finally:
+            del model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+
+
 class AudioGenerator:
     def __init__(self, model_key: str = "stable-audio-open-1.0"):
         self.model_key = model_key
@@ -440,7 +601,7 @@ class AudioGenerator:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global PROVIDER_API_KEY, SHARED_SECRET, generator
+    global PROVIDER_API_KEY, SHARED_SECRET, generator, foundation1_generator
 
     obsidian_token = os.getenv("OBSIDIAN_TOKEN", "")
     if obsidian_token:
@@ -464,8 +625,11 @@ async def lifespan(app: FastAPI):
     if generator is None:
         generator = AudioGenerator(model_key=MODEL_KEY)
 
-    print(f"  Model  : {generator.model_id}")
-    print(f"  Device : {generator.device}")
+    foundation1_generator = Foundation1Generator()
+
+    print(f"  Model        : {generator.model_id}")
+    print(f"  Device       : {generator.device}")
+    print(f"  Foundation-1 : {FOUNDATION1_HF_REPO} (cache HF)")
 
     yield
 
@@ -500,9 +664,7 @@ async def process(raw: dict):
                 request.user_message,
                 request.image_base64,
             )
-
             print(f"✅ LLM infer done in {time.time() - t0:.1f}s")
-
             return LLMInferResponse(
                 system_prompt=request.system_prompt,
                 history=request.history,
@@ -511,7 +673,6 @@ async def process(raw: dict):
                 model=LLM_MODEL,
                 provider_key=PROVIDER_API_KEY,
             )
-
         except httpx.ConnectError:
             raise HTTPException(
                 status_code=503, detail="Ollama not reachable on provider"
@@ -538,6 +699,7 @@ async def process(raw: dict):
                     "status": "ok",
                     "model": generator.model_key,
                     "model_id": generator.model_id,
+                    "foundation1": FOUNDATION1_HF_REPO,
                 }
             )
 
@@ -545,6 +707,7 @@ async def process(raw: dict):
             is_available = (
                 generator is not None
                 and not generator._generating
+                and not (foundation1_generator and foundation1_generator._generating)
                 and not _llm_generating
             )
             vram_info = {}
@@ -563,46 +726,99 @@ async def process(raw: dict):
                     "model_id": generator.model_id,
                     "device": generator.device,
                     "generating": generator._generating if generator else False,
+                    "generating_foundation1": (
+                        foundation1_generator._generating
+                        if foundation1_generator
+                        else False
+                    ),
                     "generating_llm": _llm_generating,
                     **vram_info,
                 }
             )
 
         elif request.action == "generate":
-            if generator is None:
-                raise HTTPException(status_code=503, detail="Model not loaded")
-            if generator._generating:
-                raise HTTPException(
-                    status_code=503, detail="Already generating — try again later"
-                )
+            use_foundation = request.model == "foundation-1"
 
-            duration = max(MIN_DURATION, min(MAX_DURATION, request.duration))
+            if use_foundation:
+                if foundation1_generator is None:
+                    raise HTTPException(
+                        status_code=503, detail="Foundation-1 not available"
+                    )
+                if foundation1_generator._generating:
+                    raise HTTPException(
+                        status_code=503, detail="Already generating — try again later"
+                    )
+                if not request.bpm:
+                    raise HTTPException(
+                        status_code=422, detail="bpm is required for foundation-1 model"
+                    )
 
-            try:
-                loop = asyncio.get_event_loop()
-                wav_bytes = await loop.run_in_executor(
-                    None,
-                    generator.generate_with_seed,
-                    request.prompt,
-                    duration,
-                    request.seed,
-                )
-                return Response(
-                    content=wav_bytes,
-                    media_type="audio/wav",
-                    headers={
-                        "X-Provider-Key": PROVIDER_API_KEY,
-                        "X-Model": generator.model_key,
-                        "X-Duration": str(duration),
-                        "X-Sample-Rate": str(TARGET_SAMPLE_RATE),
-                        "X-Seed": str(request.seed),
-                    },
-                )
-            except Exception as e:
-                print(f"❌ Generation error: {e}")
-                raise HTTPException(
-                    status_code=500, detail=f"Generation failed: {str(e)}"
-                )
+                try:
+                    loop = asyncio.get_event_loop()
+                    wav_bytes, snapped_bpm = await loop.run_in_executor(
+                        None,
+                        foundation1_generator.generate,
+                        request.prompt,
+                        request.bpm,
+                        request.bars or 8,
+                        request.key,
+                        request.seed,
+                    )
+                    return Response(
+                        content=wav_bytes,
+                        media_type="audio/wav",
+                        headers={
+                            "X-Provider-Key": PROVIDER_API_KEY,
+                            "X-Model": "foundation-1",
+                            "X-BPM": str(request.bpm),
+                            "X-Snapped-BPM": str(snapped_bpm),
+                            "X-Bars": str(request.bars or 8),
+                            "X-Key": sanitize_header(str(request.key or "")),
+                            "X-Seed": str(request.seed),
+                        },
+                    )
+                except Exception as e:
+                    print(f"❌ Foundation-1 error: {e}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Foundation-1 generation failed: {str(e)}",
+                    )
+
+            else:
+                if generator is None:
+                    raise HTTPException(status_code=503, detail="Model not loaded")
+                if generator._generating:
+                    raise HTTPException(
+                        status_code=503, detail="Already generating — try again later"
+                    )
+
+                duration = max(MIN_DURATION, min(MAX_DURATION, request.duration))
+                try:
+                    loop = asyncio.get_event_loop()
+                    wav_bytes = await loop.run_in_executor(
+                        None,
+                        generator.generate_with_seed,
+                        request.prompt,
+                        duration,
+                        request.seed,
+                    )
+                    return Response(
+                        content=wav_bytes,
+                        media_type="audio/wav",
+                        headers={
+                            "X-Provider-Key": PROVIDER_API_KEY,
+                            "X-Model": generator.model_key,
+                            "X-Duration": str(duration),
+                            "X-Sample-Rate": str(TARGET_SAMPLE_RATE),
+                            "X-Seed": str(request.seed),
+                        },
+                    )
+                except Exception as e:
+                    print(f"❌ Generation error: {e}")
+                    raise HTTPException(
+                        status_code=500, detail=f"Generation failed: {str(e)}"
+                    )
+
     raise HTTPException(
         status_code=422,
         detail=f"Unknown action '{action}'. Valid: health, status, generate, llm_infer",

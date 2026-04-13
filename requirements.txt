@@ -15,3 +15,5 @@ torchsde
 websockets
 huggingface_hub
 ollama
+stable-audio-tools
+einops
