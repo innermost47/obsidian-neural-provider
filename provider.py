@@ -460,7 +460,7 @@ class Foundation1Generator:
                 audio_np = audio_np / max_val * 0.9
 
             buf = io.BytesIO()
-            sf.write(buf, audio_np.T, sample_rate, format="WAV")
+            sf.write(buf, audio_np, sample_rate, format="WAV", channels=2)
             buf.seek(0)
             return buf.read(), snapped_bpm
 
@@ -561,7 +561,7 @@ class AudioGenerator:
                 final_prompt += f", {key}"
             if bpm:
                 final_prompt += f", {bpm} BPM"
-            print(final_prompt)
+
             gen = torch.Generator(device=self.device).manual_seed(seed)
 
             t0 = time.time()
@@ -612,7 +612,7 @@ class AudioGenerator:
                 audio = audio.T
 
             buf = io.BytesIO()
-            sf.write(buf, audio, TARGET_SAMPLE_RATE, format="WAV")
+            sf.write(buf, audio, TARGET_SAMPLE_RATE, format="WAV", channels=2)
             buf.seek(0)
             return buf.read()
         finally:
