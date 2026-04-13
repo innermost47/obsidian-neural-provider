@@ -561,7 +561,7 @@ class AudioGenerator:
                 final_prompt += f", {key}"
             if bpm:
                 final_prompt += f", {bpm} BPM"
-
+            print(final_prompt)
             gen = torch.Generator(device=self.device).manual_seed(seed)
 
             t0 = time.time()
