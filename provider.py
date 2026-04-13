@@ -718,23 +718,26 @@ async def process(raw: dict):
                     "vram_total_gb": round(vram_total, 1),
                     "vram_used_gb": round(vram_used, 1),
                 }
-            return JSONResponse(
-                content={
-                    "available": is_available,
-                    "api_key": PROVIDER_API_KEY,
-                    "model": generator.model_key,
-                    "model_id": generator.model_id,
-                    "device": generator.device,
-                    "generating": generator._generating if generator else False,
-                    "generating_foundation1": (
-                        foundation1_generator._generating
-                        if foundation1_generator
-                        else False
-                    ),
-                    "generating_llm": _llm_generating,
-                    **vram_info,
-                }
-            )
+                return JSONResponse(
+                    content={
+                        "available": is_available,
+                        "api_key": PROVIDER_API_KEY,
+                        "model": generator.model_key,
+                        "model_id": generator.model_id,
+                        "device": generator.device,
+                        "generating": (
+                            (generator._generating if generator else False)
+                            or (
+                                foundation1_generator._generating
+                                if foundation1_generator
+                                else False
+                            )
+                            or _llm_generating
+                        ),
+                        "generating_llm": _llm_generating,
+                        **vram_info,
+                    }
+                )
 
         elif request.action == "generate":
             use_foundation = request.model == "foundation-1"
