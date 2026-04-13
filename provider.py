@@ -527,27 +527,47 @@ class AudioGenerator:
             torch.cuda.empty_cache()
         gc.collect()
 
-    def generate_with_seed(self, prompt: str, duration: int, seed: int) -> bytes:
+    def generate_with_seed(
+        self,
+        prompt: str,
+        duration: int,
+        seed: int,
+        bpm: Optional[int] = None,
+        key: Optional[str] = None,
+    ) -> bytes:
         with self._lock:
             self._generating = True
             try:
-                return self._generate_with_seed(prompt, duration, seed)
+                return self._generate_with_seed(prompt, duration, seed, bpm, key)
             finally:
                 self._generating = False
 
-    def _generate_with_seed(self, prompt: str, duration: int, seed: int) -> bytes:
+    def _generate_with_seed(
+        self,
+        prompt: str,
+        duration: int,
+        seed: int,
+        bpm: Optional[int] = None,
+        key: Optional[str] = None,
+    ) -> bytes:
         try:
             self.load()
             duration = max(MIN_DURATION, min(10, duration))
             num_inference_steps = 50
             cfg_scale = 7.0
 
+            final_prompt = prompt.strip()
+            if key:
+                final_prompt += f", {key}"
+            if bpm:
+                final_prompt += f", {bpm} BPM"
+
             gen = torch.Generator(device=self.device).manual_seed(seed)
 
             t0 = time.time()
 
             result = self.pipeline(
-                prompt,
+                final_prompt,
                 negative_prompt="Low quality, distorted, noise",
                 num_inference_steps=num_inference_steps,
                 audio_end_in_s=duration,
@@ -804,6 +824,8 @@ async def process(raw: dict):
                         request.prompt,
                         duration,
                         request.seed,
+                        request.bpm,
+                        request.key,
                     )
                     return Response(
                         content=wav_bytes,
