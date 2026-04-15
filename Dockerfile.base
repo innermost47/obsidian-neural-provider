@@ -34,7 +34,7 @@ RUN pip install --no-cache-dir einops safetensors
 ARG HF_TOKEN
 RUN python3 -c "from huggingface_hub import login; login(token='${HF_TOKEN}')" && \
     python3 -c "from diffusers import StableAudioPipeline; StableAudioPipeline.from_pretrained('stabilityai/stable-audio-open-1.0')" && \
-    python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='RoyalCities/Foundation-1', filename='Foundation_1.safetensors'); hf_hub_download(repo_id='RoyalCities/Foundation-1', filename='model_config.json'); print('Foundation-1 cached OK')"
+    python3 -c "from huggingface_hub import hf_hub_download; [hf_hub_download(repo_id=r, filename=f) for r,f in [('RoyalCities/Foundation-1','Foundation_1.safetensors'),('RoyalCities/Foundation-1','model_config.json'),('innermost47/obsidian-neural-models','audialab-edm-elements.safetensors'),('innermost47/obsidian-neural-models','audialab-edm-elements_model_config.json'),('innermost47/obsidian-neural-models','rc-infinite-pianos.safetensors'),('innermost47/obsidian-neural-models','rc-infinite-pianos_model_config.json'),('innermost47/obsidian-neural-models','rc-vocal-textures.safetensors'),('innermost47/obsidian-neural-models','rc-vocal-textures_model_config.json'),('innermost47/obsidian-neural-models','sao-instrumental.safetensors'),('innermost47/obsidian-neural-models','sao-instrumental_model_config.json'),('innermost47/obsidian-neural-models','stablebeat.safetensors'),('innermost47/obsidian-neural-models','stablebeat_model_config.json'),('innermost47/obsidian-neural-models','gluten-v1.safetensors'),('innermost47/obsidian-neural-models','gluten-v1_model_config.json')]]; print('All models cached.')"
 
 RUN ollama serve & \
     sleep 5 && \

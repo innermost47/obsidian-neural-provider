@@ -41,8 +41,44 @@ SUPPORTED_MODELS = {
 }
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 LLM_MODEL = "gemma4:e2b"
-FOUNDATION1_HF_REPO = "RoyalCities/Foundation-1"
-FOUNDATION1_SUPPORTED_BPM = [100, 110, 120, 128, 130, 140, 150]
+STABLE_AUDIO_MODELS = {
+    "foundation-1": (
+        "RoyalCities/Foundation-1",
+        "Foundation_1.safetensors",
+        "model_config.json",
+    ),
+    "audialab-edm-elements": (
+        "innermost47/obsidian-neural-models",
+        "audialab-edm-elements.safetensors",
+        "audialab-edm-elements_model_config.json",
+    ),
+    "rc-infinite-pianos": (
+        "innermost47/obsidian-neural-models",
+        "rc-infinite-pianos.safetensors",
+        "rc-infinite-pianos_model_config.json",
+    ),
+    "rc-vocal-textures": (
+        "innermost47/obsidian-neural-models",
+        "rc-vocal-textures.safetensors",
+        "rc-vocal-textures_model_config.json",
+    ),
+    "sao-instrumental": (
+        "innermost47/obsidian-neural-models",
+        "sao-instrumental.safetensors",
+        "sao-instrumental_model_config.json",
+    ),
+    "stablebeat": (
+        "innermost47/obsidian-neural-models",
+        "stablebeat.safetensors",
+        "stablebeat_model_config.json",
+    ),
+    "gluten-v1": (
+        "innermost47/obsidian-neural-models",
+        "gluten-v1.safetensors",
+        "gluten-v1_model_config.json",
+    ),
+}
+SUPPORTED_BPM = [100, 110, 120, 128, 130, 140, 150]
 MAX_DURATION = 30
 MIN_DURATION = 2
 TARGET_SAMPLE_RATE = 44100
@@ -51,7 +87,7 @@ TARGET_SAMPLE_RATE = 44100
 _llm_generating: bool = False
 
 generator: Optional["AudioGenerator"] = None
-foundation1_generator: Optional["Foundation1Generator"] = None
+stable_audio_generators: dict[str, "StableAudioGenerator"] = {}
 
 
 class AudioProcessRequest(BaseModel):
@@ -76,7 +112,7 @@ class AudioProcessRequest(BaseModel):
     @field_validator("model")
     @classmethod
     def validate_model(cls, v):
-        allowed = {"stable-audio-open-1.0", "foundation-1"}
+        allowed = {"stable-audio-open-1.0"} | set(STABLE_AUDIO_MODELS.keys())
         if v not in allowed:
             raise ValueError(f"model must be one of {allowed}")
         return v
@@ -337,17 +373,25 @@ def send_heartbeat_sync():
 
 
 def _nearest_supported_bpm(bpm: int) -> int:
-    return min(FOUNDATION1_SUPPORTED_BPM, key=lambda x: abs(x - bpm))
+    return min(SUPPORTED_BPM, key=lambda x: abs(x - bpm))
 
 
-class Foundation1Generator:
-    def __init__(self):
+class StableAudioGenerator:
+    def __init__(
+        self,
+        repo_id: str,
+        ckpt_filename: str,
+        config_filename: str = "model_config.json",
+    ):
+        self.repo_id = repo_id
+        self.ckpt_filename = ckpt_filename
+        self.config_filename = config_filename
         self._lock = threading.Lock()
         self._generating = False
 
     def generate(
         self, prompt: str, bpm: int, bars: int, key: Optional[str], seed: int
-    ) -> bytes:
+    ) -> tuple[bytes, int]:
         with self._lock:
             self._generating = True
             try:
@@ -373,11 +417,9 @@ class Foundation1Generator:
             else torch.float16
         )
 
-        ckpt_path = hf_hub_download(
-            repo_id=FOUNDATION1_HF_REPO, filename="Foundation_1.safetensors"
-        )
+        ckpt_path = hf_hub_download(repo_id=self.repo_id, filename=self.ckpt_filename)
         config_path = hf_hub_download(
-            repo_id=FOUNDATION1_HF_REPO, filename="model_config.json"
+            repo_id=self.repo_id, filename=self.config_filename
         )
 
         with open(config_path) as f:
@@ -634,7 +676,7 @@ class AudioGenerator:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global PROVIDER_API_KEY, SHARED_SECRET, generator, foundation1_generator
+    global PROVIDER_API_KEY, SHARED_SECRET, generator, stable_audio_generators
 
     obsidian_token = os.getenv("OBSIDIAN_TOKEN", "")
     if obsidian_token:
@@ -658,11 +700,12 @@ async def lifespan(app: FastAPI):
     if generator is None:
         generator = AudioGenerator(model_key=MODEL_KEY)
 
-    foundation1_generator = Foundation1Generator()
+    for model_key, (repo_id, ckpt, config) in STABLE_AUDIO_MODELS.items():
+        stable_audio_generators[model_key] = StableAudioGenerator(repo_id, ckpt, config)
+        print(f"  {model_key} : {repo_id}/{ckpt}")
 
-    print(f"  Model        : {generator.model_id}")
-    print(f"  Device       : {generator.device}")
-    print(f"  Foundation-1 : {FOUNDATION1_HF_REPO} (cache HF)")
+    print(f"  Model  : {generator.model_id}")
+    print(f"  Device : {generator.device}")
 
     yield
 
@@ -732,15 +775,19 @@ async def process(raw: dict):
                     "status": "ok",
                     "model": generator.model_key,
                     "model_id": generator.model_id,
-                    "foundation1": FOUNDATION1_HF_REPO,
+                    "available_models": list(STABLE_AUDIO_MODELS.keys())
+                    + ["stable-audio-open-1.0"],
                 }
             )
 
         elif request.action == "status":
+            any_sag_generating = any(
+                s._generating for s in stable_audio_generators.values()
+            )
             is_available = (
                 generator is not None
                 and not generator._generating
-                and not (foundation1_generator and foundation1_generator._generating)
+                and not any_sag_generating
                 and not _llm_generating
             )
             vram_info = {}
@@ -758,42 +805,37 @@ async def process(raw: dict):
                         "model": generator.model_key,
                         "model_id": generator.model_id,
                         "device": generator.device,
-                        "generating": (
-                            (generator._generating if generator else False)
-                            or (
-                                foundation1_generator._generating
-                                if foundation1_generator
-                                else False
-                            )
-                            or _llm_generating
-                        ),
+                        "generating": generator._generating
+                        or any_sag_generating
+                        or _llm_generating,
                         "generating_llm": _llm_generating,
                         **vram_info,
                     }
                 )
 
         elif request.action == "generate":
-            use_foundation = request.model == "foundation-1"
+            use_stable_audio_model = request.model in STABLE_AUDIO_MODELS
 
-            if use_foundation:
-                if foundation1_generator is None:
+            if use_stable_audio_model:
+                sag = stable_audio_generators.get(request.model)
+                if sag is None:
                     raise HTTPException(
-                        status_code=503, detail="Foundation-1 not available"
+                        status_code=503, detail=f"Model {request.model} not available"
                     )
-                if foundation1_generator._generating:
+                if sag._generating:
                     raise HTTPException(
                         status_code=503, detail="Already generating — try again later"
                     )
                 if not request.bpm:
                     raise HTTPException(
-                        status_code=422, detail="bpm is required for foundation-1 model"
+                        status_code=422, detail="bpm is required for this model"
                     )
 
                 try:
                     loop = asyncio.get_event_loop()
                     wav_bytes, snapped_bpm = await loop.run_in_executor(
                         None,
-                        foundation1_generator.generate,
+                        sag.generate,
                         request.prompt,
                         request.bpm,
                         request.bars or 8,
@@ -805,7 +847,7 @@ async def process(raw: dict):
                         media_type="audio/wav",
                         headers={
                             "X-Provider-Key": PROVIDER_API_KEY,
-                            "X-Model": "foundation-1",
+                            "X-Model": request.model,
                             "X-BPM": str(request.bpm),
                             "X-Snapped-BPM": str(snapped_bpm),
                             "X-Bars": str(request.bars or 8),
@@ -814,10 +856,10 @@ async def process(raw: dict):
                         },
                     )
                 except Exception as e:
-                    print(f"❌ Foundation-1 error: {e}")
+                    print(f"❌ {request.model} error: {e}")
                     raise HTTPException(
                         status_code=500,
-                        detail=f"Foundation-1 generation failed: {str(e)}",
+                        detail=f"{request.model} generation failed: {str(e)}",
                     )
 
             else:
