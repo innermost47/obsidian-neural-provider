@@ -98,11 +98,12 @@ class AudioProcessRequest(BaseModel):
                 )
         return v
 
-    @field_validator("prompt")
+    @field_validator("prompt", mode="before")
     @classmethod
     def validate_prompt(cls, v, info):
-        if info.data.get("action") == "generate":
-            if not v or not v.strip():
+        action = info.data.get("action") if info.data else None
+        if action == "generate":
+            if v is None or not str(v).strip():
                 raise ValueError("prompt is required for generate action")
         return v
 
