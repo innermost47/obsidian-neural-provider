@@ -556,6 +556,13 @@ class AudioGenerator:
         key: Optional[str] = None,
     ) -> bytes:
         try:
+            if not prompt or not prompt.strip():
+                raise ValueError("prompt cannot be None or empty")
+
+            seed = (
+                seed if seed is not None else torch.randint(0, 2**31 - 1, (1,)).item()
+            )
+
             self.load()
             duration = max(MIN_DURATION, min(10, duration))
             num_inference_steps = 50
