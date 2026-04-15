@@ -393,7 +393,7 @@ class Foundation1Generator:
             snapped_bpm = _nearest_supported_bpm(bpm)
             if snapped_bpm != bpm:
                 print(
-                    f"⚠️  BPM {bpm} → snapped à {snapped_bpm} (stretch géré par le serveur central)"
+                    f"⚠️ BPM {bpm} → snapped to {snapped_bpm} (stretch managed by the central server)"
                 )
 
             clip_seconds = (60.0 / snapped_bpm) * 4 * bars
