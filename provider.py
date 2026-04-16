@@ -429,6 +429,17 @@ class StableAudioGenerator:
         state_dict = load_ckpt_state_dict(ckpt_path)
         model.load_state_dict(state_dict)
         model.to(device).to(dtype).eval().requires_grad_(False)
+        training_config = model_config.get("training", {})
+        demo_config = training_config.get("demo", {})
+        steps = demo_config.get("demo_steps", 75)
+        cfg_scales = demo_config.get("demo_cfg_scales", [7.0])
+        cfg_scale = cfg_scales[-1] if isinstance(cfg_scales, list) else 7.0
+        demo_cond = demo_config.get("demo_cond", [{}])
+        conditioning_duration = float(demo_cond[0].get("seconds_total", 30.0))
+
+        print(
+            f"🛠️ Auto-Config for {self.ckpt_filename}: Steps={steps}, CFG={cfg_scale}, Cond_Duration={conditioning_duration}s"
+        )
 
         try:
             sample_rate = model_config["sample_rate"]
@@ -461,31 +472,9 @@ class StableAudioGenerator:
                 {
                     "prompt": full_prompt,
                     "seconds_start": 0.0,
-                    "seconds_total": float(seconds_int),
+                    "seconds_total": conditioning_duration,
                 }
             ]
-            steps = 75
-            cfg_scale = 7.0
-            sampler_type = "dpmpp-3m-sde"
-            model_name = self.ckpt_filename.lower()
-            if "stablebeat" in model_name:
-                steps = 200
-                cfg_scale = 7.0
-            elif "gluten" in model_name:
-                steps = 100
-                cfg_scale = 9.0
-            elif "instrumental" in model_name:
-                steps = 120
-                cfg_scale = 8.0
-            elif "foundation" in model_name:
-                steps = 75
-                cfg_scale = 7.0
-            elif "pianos" in model_name:
-                steps = 100
-                cfg_scale = 7.5
-            elif "edm" in model_name:
-                steps = 80
-                cfg_scale = 8.0
 
             t0 = time.time()
             audio = generate_diffusion_cond(
@@ -499,7 +488,7 @@ class StableAudioGenerator:
                 sample_rate=sample_rate,
                 seed=seed,
                 device=device,
-                sampler_type=sampler_type,
+                sampler_type="dpmpp-3m-sde",
                 sigma_min=0.03,
                 sigma_max=500,
                 scale_phi=0.0,
