@@ -464,20 +464,42 @@ class StableAudioGenerator:
                     "seconds_total": float(seconds_int),
                 }
             ]
+            steps = 75
+            cfg_scale = 7.0
+            sampler_type = "dpmpp-3m-sde"
+            model_name = self.ckpt_filename.lower()
+            if "stablebeat" in model_name:
+                steps = 200
+                cfg_scale = 7.0
+            elif "gluten" in model_name:
+                steps = 100
+                cfg_scale = 9.0
+            elif "instrumental" in model_name:
+                steps = 120
+                cfg_scale = 8.0
+            elif "foundation" in model_name:
+                steps = 75
+                cfg_scale = 7.0
+            elif "pianos" in model_name:
+                steps = 100
+                cfg_scale = 7.5
+            elif "edm" in model_name:
+                steps = 80
+                cfg_scale = 8.0
 
             t0 = time.time()
             audio = generate_diffusion_cond(
                 model,
                 conditioning=conditioning,
                 negative_conditioning=None,
-                steps=75,
-                cfg_scale=7.0,
+                steps=steps,
+                cfg_scale=cfg_scale,
                 batch_size=1,
                 sample_size=target_samples,
                 sample_rate=sample_rate,
                 seed=seed,
                 device=device,
-                sampler_type="dpmpp-3m-sde",
+                sampler_type=sampler_type,
                 sigma_min=0.03,
                 sigma_max=500,
                 scale_phi=0.0,
