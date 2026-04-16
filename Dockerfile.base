@@ -5,7 +5,10 @@ ENV HF_HOME=/root/.cache/huggingface
 ENV OLLAMA_HOST=0.0.0.0
 ENV OLLAMA_MODELS=/root/.ollama/models
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirror.cloudflare.com/ubuntu/|g' /etc/apt/sources.list && \
+    sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirror.cloudflare.com/ubuntu/|g' /etc/apt/sources.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
     python3.10 \
     python3.10-venv \
     python3.10-dev \
