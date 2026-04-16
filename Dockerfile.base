@@ -5,20 +5,16 @@ ENV HF_HOME=/root/.cache/huggingface
 ENV OLLAMA_HOST=0.0.0.0
 ENV OLLAMA_MODELS=/root/.ollama/models
 
-RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirror.cloudflare.com/ubuntu/|g' /etc/apt/sources.list && \
-    sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirror.cloudflare.com/ubuntu/|g' /etc/apt/sources.list && \
-    apt-get update && \
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.ovh.net/ubuntu/|g' /etc/apt/sources.list && \
+    sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.ovh.net/ubuntu/|g' /etc/apt/sources.list && \
+    apt-get update -y && \
+    apt-get install -y --no-install-recommends software-properties-common && \
+    add-apt-repository -y ppa:deadsnakes/ppa && \
+    apt-get update -y && \
     apt-get install -y --no-install-recommends \
-    python3.10 \
-    python3.10-venv \
-    python3.10-dev \
-    python3-pip \
-    ffmpeg \
-    libsndfile1 \
-    curl \
-    zstd \
-    software-properties-common \
-    && rm -rf /var/lib/apt/lists/*
+    python3.10 python3.10-venv python3.10-dev python3-pip \
+    ffmpeg libsndfile1 curl zstd && \
+    rm -rf /var/lib/apt/lists/*
 
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
     update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
