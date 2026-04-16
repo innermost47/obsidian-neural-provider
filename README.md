@@ -14,7 +14,24 @@
 
 ## Overview
 
-OBSIDIAN Neural is an open source VST3/AU plugin for real-time AI music generation directly in your DAW. This repository contains the **provider kit**: a containerized FastAPI inference server you run on your machine to contribute your GPU to the distributed generation network.
+OBSIDIAN Neural is an open source VST3/AU workstation for real-time AI music generation. This repository contains the **provider kit**: a containerized FastAPI inference server that now supports **8 specialized AI models** simultaneously. By running this kit, you contribute your GPU to the distributed network and earn a share of the platform's revenue.
+
+## 🧠 The Multi-Model Engine
+
+Each provider node is now a versatile workstation capable of switching between 8 specialized "brains" in real-time:
+
+1.  **Stable Audio Open 1.0** — General purpose foundation for full-mix textures.
+2.  **Foundation-1** — Surgical tag-based control for melodic and harmonic phrasing.
+3.  **Audialab EDM Elements** — High-energy EDM leads, supersaws, and plucks.
+4.  **RC Infinite Pianos** — High-fidelity grand and electric piano performances.
+5.  **RC Vocal Textures** — Choral and operatic vocal chord progressions.
+6.  **SAO Instrumental** — Modern indie, rock, and lofi stems.
+7.  **StableBeaT** — Advanced trap drum machine and 808 grooves.
+8.  **Gluten-V1** — Specialized loop engine for trap and wavy melodic motifs.
+
+**Auto-Config Technology:** The provider script automatically extracts optimal parameters (`Steps`, `CFG Scale`, `Conditioning Duration`) directly from each model's internal `model_config.json` to guarantee the best possible audio quality.
+
+---
 
 ## How it works
 
@@ -22,45 +39,45 @@ OBSIDIAN Neural is an open source VST3/AU plugin for real-time AI music generati
 Musician in their DAW
 ↓ types a prompt or draws on the canvas
 OBSIDIAN Neural central server
-↓ finds an available GPU in the pool
+↓ finds an available Multi-Model GPU Provider
 Your machine (provider)
 ├── LLM inference (Gemma 4 via Ollama)
 │       ↓ optimizes the prompt / analyzes the drawing
 │       ↓ returns structured JSON response
-└── Audio generation (Stable Audio)
-        ↓ generates audio from the optimized prompt
+└── Audio generation (Dynamic Model Stack)
+        ↓ Loads weights (.safetensors) for the requested model
+        ↓ Generates audio using lab-tested settings (from model config)
         ↓ returns validated WAV
 Musician receives the sound in real time
 ```
 
-Subscription revenue is redistributed **equally** among all eligible providers each month via Stripe Connect, after deduction of a 15% platform fee covering infrastructure costs (fal.ai, hosting, maintenance). This fee is published publicly each month.
+Subscription revenue is redistributed **equally** among all eligible providers each month via Stripe Connect, after deduction of a 15% platform fee covering infrastructure costs (fal.ai fallback, hosting, maintenance).
 
 ---
 
 ## Requirements
 
-| Component  | Specification                        |
-| ---------- | ------------------------------------ |
-| NVIDIA GPU | RTX 3070+ (8 GB VRAM)                |
-| RAM        | 16 GB                                |
-| OS         | Windows / Linux                      |
-| CUDA       | 11.8+                                |
-| Docker     | 20.10+ with NVIDIA Container Toolkit |
+| Component  | Specification                                 |
+| ---------- | --------------------------------------------- |
+| NVIDIA GPU | RTX 3070+ (8 GB VRAM min, 12 GB+ recommended) |
+| RAM        | 16 GB                                         |
+| Storage    | ~40 GB (required for the full 8-model suite)  |
+| OS         | Windows / Linux                               |
+| CUDA       | 11.8+                                         |
+| Docker     | 20.10+ with NVIDIA Container Toolkit          |
 
 ---
 
 ## What your provider runs
 
-Each provider runs two inference stacks simultaneously:
+Each provider runs two inference stacks:
 
-| Stack | Model                               | Purpose                                                  |
-| ----- | ----------------------------------- | -------------------------------------------------------- |
-| Audio | `stabilityai/stable-audio-open-1.0` | WAV generation from optimized prompts                    |
-| LLM   | `gemma4:e2b` via Ollama             | Prompt optimization + drawing-to-sound analysis (vision) |
+| Stack     | Model / Capabilities                                       |
+| --------- | ---------------------------------------------------------- |
+| **Audio** | **8 Specialized Models** (On-demand loading)               |
+| **LLM**   | `gemma4:e2b` via Ollama for prompt optimization and vision |
 
-Both models are bundled in the Docker image — no download required at runtime.
-
-**Jobs are mutually exclusive** — your provider cannot accept an LLM request while generating audio, and vice versa. The central server handles scheduling automatically.
+**Jobs are mutually exclusive** — your provider processes one request at a time (LLM or Audio) to ensure maximum VRAM availability and stability.
 
 ---
 
@@ -68,7 +85,7 @@ Both models are bundled in the Docker image — no download required at runtime.
 
 ### 1 — Benchmark your GPU
 
-Before anything, verify your GPU is fast enough:
+Verify your GPU can handle the high-quality multi-model generation:
 
 ```bash
 docker run --rm --gpus all \
@@ -77,39 +94,22 @@ docker run --rm --gpus all \
   python benchmark.py
 ```
 
-| Model                   | Max average time for 10s audio |
-| ----------------------- | ------------------------------ |
-| `stable-audio-open-1.0` | 60s                            |
-
-If your GPU is eligible, proceed to the next step.
-
----
-
 ### 2 — Join the network
 
-1. Send an email to **contact@obsidian-neural.com** with your GPU model and your public URL (see Network setup below)
-2. The admin creates your provider account and sends you your **activation token** (`OBSIDIAN_TOKEN`)
-3. The pool is limited to **10 providers** in phase 1
+1. Send an email to **contact@obsidian-neural.com** with your GPU model and public URL.
+2. Once approved, the admin will send you your **activation token** (`OBSIDIAN_TOKEN`).
 
 ---
 
 ### 3 — Network setup
 
-Your machine must be reachable from the internet over **HTTPS with WebSocket support**. This requires:
-
-- A domain name or free DDNS hostname pointing to your public IP
-- Port forwarding on your router (443 → your machine)
-- nginx as a reverse proxy with a valid SSL certificate
-- Ports 80 and 443 open on your firewall
+Your machine must be reachable over **HTTPS with WebSocket support**.
 
 #### 3a — Get a free domain (DDNS)
 
-If you don't have a static IP or domain name, use [DuckDNS](https://www.duckdns.org):
+If you don't have a static IP, use [DuckDNS](https://www.duckdns.org):
 
-1. Create a free account and register a subdomain (e.g. `myprovider.duckdns.org`)
-2. Keep your IP up to date:
-
-**Linux:**
+**Linux Setup:**
 
 ```bash
 mkdir -p ~/duckdns
@@ -120,152 +120,37 @@ chmod +x ~/duckdns/duck.sh
 (crontab -l 2>/dev/null; echo "*/5 * * * * ~/duckdns/duck.sh >/dev/null 2>&1") | crontab -
 ```
 
-**Windows:**
-Download and install the [DuckDNS Windows client](https://www.duckdns.org/install.jsp?tab=windows).
-
 #### 3b — Port forwarding
 
-On your router admin panel (usually `192.168.1.1`):
+On your router admin:
 
-- Forward **external port 443** → **your machine's local IP:443**
-- Forward **external port 80** → **your machine's local IP:80** (required for Let's Encrypt)
+- Forward **port 443** → **your machine's local IP:443**
+- Forward **port 80** → **your machine's local IP:80** (for SSL)
 
-Assign a **static local IP** to your machine in your router's DHCP settings.
+#### 3c — Install nginx + SSL
 
-#### 3c — Install nginx + SSL certificate
-
-**Linux:**
+**Linux Example:**
 
 ```bash
 sudo apt install nginx certbot python3-certbot-nginx -y
 sudo certbot --nginx -d myprovider.duckdns.org
-sudo nano /etc/nginx/sites-available/obsidian-provider
 ```
+
+Edit your nginx config to enable WebSocket proxying to port 8000:
 
 ```nginx
-server {
-    listen 80;
-    server_name myprovider.duckdns.org;
-    return 301 https://$host$request_uri;
+location / {
+    proxy_pass http://localhost:8000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 300s;
 }
-
-server {
-    listen 443 ssl;
-    server_name myprovider.duckdns.org;
-
-    ssl_certificate /etc/letsencrypt/live/myprovider.duckdns.org/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/myprovider.duckdns.org/privkey.pem;
-
-    location / {
-        proxy_pass http://localhost:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
-        proxy_connect_timeout 75s;
-    }
-}
-```
-
-```bash
-sudo ln -s /etc/nginx/sites-available/obsidian-provider /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-**Windows:**
-
-1. Download [nginx for Windows](https://nginx.org/en/docs/windows.html)
-2. Download [win-acme](https://www.win-acme.com/) for Let's Encrypt certificates
-3. Run win-acme to obtain a certificate for your domain
-4. Edit `nginx/conf/nginx.conf`:
-
-```nginx
-events {}
-
-http {
-    server {
-        listen 80;
-        server_name myprovider.duckdns.org;
-        return 301 https://$host$request_uri;
-    }
-
-    server {
-        listen 443 ssl;
-        server_name myprovider.duckdns.org;
-
-        ssl_certificate C:/path/to/fullchain.pem;
-        ssl_certificate_key C:/path/to/privkey.pem;
-
-        location / {
-            proxy_pass http://localhost:8000;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_read_timeout 300s;
-            proxy_connect_timeout 75s;
-        }
-    }
-}
-```
-
-```bat
-nginx.exe
-```
-
-#### 3d — Open firewall ports
-
-**Linux:**
-
-```bash
-sudo ufw allow 80
-sudo ufw allow 443
-sudo ufw reload
-```
-
-**Windows:**
-
-```powershell
-netsh advfirewall firewall add rule name="OBSIDIAN HTTP" protocol=TCP dir=in localport=80 action=allow
-netsh advfirewall firewall add rule name="OBSIDIAN HTTPS" protocol=TCP dir=in localport=443 action=allow
 ```
 
 ---
 
-### 4 — Install Docker + NVIDIA Container Toolkit
-
-**Windows:**
-
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with WSL2 backend
-- NVIDIA drivers ≥ 525 (NVIDIA Container Toolkit is bundled with Docker Desktop)
-
-**Linux:**
-
-```bash
-# Docker
-curl -fsSL https://get.docker.com | sh
-
-# NVIDIA Container Toolkit
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
-```
-
----
-
-### 5 — Run the provider
+### 4 — Run the provider
 
 ```bash
 docker run -d \
@@ -279,109 +164,37 @@ docker run -d \
   innermost47/obsidian-neural-provider:latest
 ```
 
-The container:
+The container will:
 
-- Activates itself automatically with your token on first start
-- Saves credentials locally for subsequent restarts — no re-activation needed
-- Connects to the central server via WebSocket and starts accepting jobs
-- Starts Ollama automatically and loads `gemma4:e2b` for LLM inference
-
----
-
-### 6 — Verify it's running
-
-```bash
-docker logs -f obsidian-provider
-```
-
-You should see:
-
-```
-🦙 Starting Ollama...
-✅ Ollama ready
-🔑 Activating provider with token...
-✅ Activated as: your-provider-name
-🔌 Attempting to connect to the central registry...
-✅ Connected to the central server (Active presence)
-⚡ Loading stabilityai/stable-audio-open-1.0 on cuda...
-✅ Model loaded (sample rate: 44100Hz)
-```
-
----
-
-## Image verification
-
-The image is signed with [Cosign](https://github.com/sigstore/cosign). Verify before running:
-
-```bash
-cosign verify --key cosign.pub innermost47/obsidian-neural-provider:latest
-```
-
-`cosign.pub` is available at the root of this repository.
-
----
-
-## Models
-
-| Model                               | VRAM    | Purpose                | Size  |
-| ----------------------------------- | ------- | ---------------------- | ----- |
-| `stabilityai/stable-audio-open-1.0` | ~7-8 GB | Audio generation       | ~5 GB |
-| `gemma4:e2b` (Ollama)               | ~3-4 GB | LLM inference + vision | ~3 GB |
-
-Both models are bundled in the Docker image — no download required at runtime.
+- Activate itself and download weights for the **8 specialized models**.
+- Start Ollama for real-time prompt analysis.
+- Connect to the central registry via WebSocket.
 
 ---
 
 ## Security & verification
 
-The central server applies multiple layers of verification to ensure providers run genuine, unmodified models:
+The central server ensures network integrity via:
 
-**Audio proof-of-work** — periodic mel spectrogram fingerprint comparisons against an encrypted reference bank. A provider running a different model or faking responses will fail these checks and be banned after 3 consecutive failures.
-
-**LLM conversation echo** — for every LLM request, the central server sends the full conversation (system prompt + history + user message) and expects it back verbatim alongside the response. Any mismatch results in an **immediate ban**.
-
-**LLM semantic monitoring** — cosine similarity between user prompts and provider responses is computed locally on the central server and logged per provider. Providers that systematically return semantically inconsistent responses are flagged for review.
-
-**Canary tests** — random invalid requests are sent at unpredictable times to verify that validation logic has not been tampered with. Accepting a canary request results in an **immediate ban**.
-
-All ban events are logged publicly. Your server only receives optimized prompts — never user personal data.
-
----
-
-## Heartbeat
-
-The provider automatically sends a heartbeat to the central server every 5 minutes, updating its online status independently of verification pings.
+**Audio proof-of-work** — periodic spectrogram comparisons against reference banks for all 8 models.
+**LLM conversation echo** — verifies LLM responses haven't been tampered with.
+**Canary tests** — random invalid requests to verify provider validation logic.
 
 ---
 
 ## Monthly redistribution
 
-```
-Monthly revenue
-    - 15% platform fee (fal.ai + hosting + maintenance)
-    = Distributable amount
-        ÷ nb eligible providers
-        = Equal share per provider
-```
-
-Example with 180€ and 6 providers:
-
-```
-180€ - 27€ = 153€ → 25.50€ per provider
-```
+**Redistribution Formula:**
+`Monthly revenue - 15% platform fee = Distributable amount ÷ nb eligible providers`
 
 **Eligibility:**
 
-1. **Presence** — worked ≥ 8h on at least 80% of your active days that month, AND accumulated ≥ 80% of your total expected hours. Providers who joined mid-month are evaluated proportionally from their join date.
-2. **Activity** — processed at least 1 real job during the month (not a fal.ai fallback)
-
-Pings and canary tests are sent at **random times** to prevent any form of scheduled cheating. The platform fee and redistributed amounts are published publicly each month.
+1. **Presence** — Online ≥ 8h on at least 80% of active days.
+2. **Activity** — Processed at least 1 real job (non-fallback) during the month.
 
 ---
 
 ## Building from source
-
-The `Dockerfile` is provided for transparency and self-hosting:
 
 ```bash
 git clone https://github.com/innermost47/obsidian-neural-provider.git
@@ -389,46 +202,19 @@ cd obsidian-neural-provider
 docker build --build-arg HF_TOKEN=your_hf_token -t obsidian-neural-provider .
 ```
 
-A HuggingFace account and acceptance of the [Stable Audio Open 1.0 license](https://huggingface.co/stabilityai/stable-audio-open-1.0) are required to build the image.
-
----
-
-## Project structure
-
-```
-obsidian-neural-provider/
-├── provider.py
-├── benchmark.py
-├── entrypoint.sh
-├── requirements.txt
-├── Dockerfile
-├── cosign.pub
-├── .env.example
-└── README.md
-```
-
 ---
 
 ## Public Data Dashboard
 
-All network data — active subscribers, monthly redistribution history, and proof-of-generation logs — is published live at:
-
+Track active subscribers and monthly redistribution history at:
 **[obsidian-neural.com/public.html](https://obsidian-neural.com/public.html)**
-
-No authentication required. No data is ever deleted.
-
----
-
-## Contributing
-
-The code is open source — each provider has an equal voice in project decisions. Submit improvements via Pull Request.
 
 ---
 
 ## License
 
-GNU Affero General Public License v3.0 — see [LICENSE](LICENSE)
+GNU Affero General Public License v3.0
 
 ---
 
-_Made with 🎵 in France — [obsidian-neural.com](https://obsidian-neural.com)_
+_Made with 🎵 for the future of sampling — [obsidian-neural.com](https://obsidian-neural.com)_
