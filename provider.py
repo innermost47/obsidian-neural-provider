@@ -455,7 +455,7 @@ class StableAudioGenerator:
             parts.append(f"{bars} Bars")
             parts.append(f"{snapped_bpm} BPM")
             full_prompt = ", ".join(parts)
-            print(f"📝 Foundation-1 prompt: {full_prompt}")
+            print(f"📝 Model prompt: {full_prompt}")
 
             conditioning = [
                 {
