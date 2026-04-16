@@ -482,7 +482,7 @@ class StableAudioGenerator:
                 sigma_max=500,
                 scale_phi=0.0,
             )
-            print(f"✅ Foundation-1 done in {time.time() - t0:.2f}s")
+            print(f"✅ {self.ckpt_filename} done in {time.time() - t0:.2f}s")
 
             audio = rearrange(audio, "b d n -> d (b n)")
             audio = audio.to(torch.float32).clamp(-1, 1)
