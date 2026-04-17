@@ -14,11 +14,11 @@
 
 ## Overview
 
-OBSIDIAN Neural is an open source VST3/AU workstation for real-time AI music generation. This repository contains the **provider kit**: a containerized FastAPI inference server that now supports **8 specialized AI models** simultaneously. By running this kit, you contribute your GPU to the distributed network and earn a share of the platform's revenue.
+OBSIDIAN Neural is an open source VST3/AU workstation for AI music generation designed for live performance. This repository contains the **provider kit**: a containerized FastAPI inference server that now supports **8 specialized AI models** simultaneously. By running this kit, you contribute your GPU to the distributed network and earn a share of the platform's revenue.
 
 ## 🧠 The Multi-Model Engine
 
-Each provider node is now a versatile workstation capable of switching between 8 specialized "brains" in real-time:
+Each provider node is now a versatile workstation capable of switching between 8 specialized "brains" on the fly:
 
 1.  **Stable Audio Open 1.0** — General purpose foundation for full-mix textures.
 2.  **Foundation-1** — Surgical tag-based control for melodic and harmonic phrasing.
@@ -167,7 +167,7 @@ docker run -d \
 The container will:
 
 - Activate itself and download weights for the **8 specialized models**.
-- Start Ollama for real-time prompt analysis.
+- Start Ollama for prompt analysis.
 - Connect to the central registry via WebSocket.
 
 ---
