@@ -84,6 +84,7 @@ MIN_DURATION = 2
 TARGET_SAMPLE_RATE = 44100
 
 _llm_generating: bool = False
+_vram_lock = asyncio.Lock()
 
 generator: Optional["AudioGenerator"] = None
 stable_audio_generators: dict[str, "StableAudioGenerator"] = {}
@@ -272,6 +273,9 @@ async def ollama_infer(
     image_base64: Optional[str] = None,
 ) -> str:
     try:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
         client = ollama.AsyncClient()
 
         messages = [{"role": "system", "content": system_prompt}]
@@ -860,15 +864,16 @@ async def process(raw: dict):
 
                 try:
                     loop = asyncio.get_event_loop()
-                    wav_bytes, snapped_bpm = await loop.run_in_executor(
-                        None,
-                        sag.generate,
-                        request.prompt,
-                        request.bpm,
-                        request.bars or 8,
-                        request.key,
-                        request.seed,
-                    )
+                    async with _vram_lock:
+                        wav_bytes, snapped_bpm = await loop.run_in_executor(
+                            None,
+                            sag.generate,
+                            request.prompt,
+                            request.bpm,
+                            request.bars or 8,
+                            request.key,
+                            request.seed,
+                        )
                     return Response(
                         content=wav_bytes,
                         media_type="audio/wav",
@@ -900,15 +905,16 @@ async def process(raw: dict):
                 duration = max(MIN_DURATION, min(MAX_DURATION, request.duration))
                 try:
                     loop = asyncio.get_event_loop()
-                    wav_bytes = await loop.run_in_executor(
-                        None,
-                        generator.generate_with_seed,
-                        request.prompt,
-                        duration,
-                        request.seed,
-                        request.bpm,
-                        request.key,
-                    )
+                    async with _vram_lock:
+                        wav_bytes = await loop.run_in_executor(
+                            None,
+                            generator.generate_with_seed,
+                            request.prompt,
+                            duration,
+                            request.seed,
+                            request.bpm,
+                            request.key,
+                        )
                     return Response(
                         content=wav_bytes,
                         media_type="audio/wav",
