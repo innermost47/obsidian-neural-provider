@@ -474,11 +474,14 @@ class StableAudioGenerator:
 
         try:
             sample_rate = model_config["sample_rate"]
-            snapped_bpm = _nearest_supported_bpm(bpm)
-            if snapped_bpm != bpm:
-                print(
-                    f"⚠️ BPM {bpm} → snapped to {snapped_bpm} (stretch managed by the central server)"
-                )
+            if self.model_key == "stable-audio-open-small":
+                snapped_bpm = bpm
+            else:
+                snapped_bpm = _nearest_supported_bpm(bpm)
+                if snapped_bpm != bpm:
+                    print(
+                        f"⚠️ BPM {bpm} → snapped to {snapped_bpm} (stretch managed by the central server)"
+                    )
 
             clip_seconds = (60.0 / snapped_bpm) * 4 * bars
             seconds_int = int(math.ceil(clip_seconds))
