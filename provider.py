@@ -508,22 +508,42 @@ class StableAudioGenerator:
             ]
 
             t0 = time.time()
-            audio = generate_diffusion_cond(
-                model,
-                conditioning=conditioning,
-                negative_conditioning=None,
-                steps=steps,
-                cfg_scale=cfg_scale,
-                batch_size=1,
-                sample_size=target_samples,
-                sample_rate=sample_rate,
-                seed=seed,
-                device=device,
-                sampler_type="dpmpp-3m-sde",
-                sigma_min=0.03,
-                sigma_max=500,
-                scale_phi=0.0,
-            )
+            if self.model_key == "stable-audio-open-small":
+                from stable_audio_tools import get_pretrained_model
+
+                model, model_config = get_pretrained_model(
+                    "stabilityai/stable-audio-open-small"
+                )
+                sample_size = model_config["sample_size"]
+                model = model.to(device)
+
+                audio = generate_diffusion_cond(
+                    model,
+                    steps=8,
+                    cfg_scale=1.0,
+                    conditioning=conditioning,
+                    sample_size=sample_size,
+                    sampler_type="pingpong",
+                    device=device,
+                    seed=seed,
+                )
+            else:
+                audio = generate_diffusion_cond(
+                    model,
+                    conditioning=conditioning,
+                    negative_conditioning=None,
+                    steps=steps,
+                    cfg_scale=cfg_scale,
+                    batch_size=1,
+                    sample_size=target_samples,
+                    sample_rate=sample_rate,
+                    seed=seed,
+                    device=device,
+                    sampler_type="dpmpp-3m-sde",
+                    sigma_min=0.03,
+                    sigma_max=500,
+                    scale_phi=0.0,
+                )
             print(f"✅ {self.ckpt_filename} done in {time.time() - t0:.2f}s")
 
             audio = rearrange(audio, "b d n -> d (b n)")
