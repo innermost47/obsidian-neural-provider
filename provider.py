@@ -539,12 +539,23 @@ class StableAudioGenerator:
             buf = io.BytesIO()
             sf.write(buf, audio_to_write, sample_rate, format="WAV", subtype="PCM_16")
             buf.seek(0)
+            del audio
             return buf.read(), snapped_bpm
 
         finally:
+            try:
+                model.to("cpu")
+            except Exception:
+                pass
             del model
+            try:
+                del state_dict
+            except NameError:
+                pass
             if torch.cuda.is_available():
+                torch.cuda.synchronize()
                 torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
             gc.collect()
 
 
@@ -599,9 +610,16 @@ class AudioGenerator:
         print(f"✅ Model loaded (sample rate: {self.sample_rate}Hz)")
 
     def unload(self):
+        if self.pipeline is not None:
+            try:
+                self.pipeline.to("cpu")
+            except Exception:
+                pass
         self.pipeline = None
         if torch.cuda.is_available():
+            torch.cuda.synchronize()
             torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
         gc.collect()
 
     def generate_with_seed(
@@ -698,6 +716,7 @@ class AudioGenerator:
             buf = io.BytesIO()
             sf.write(buf, audio, TARGET_SAMPLE_RATE, format="WAV")
             buf.seek(0)
+            del audio
             return buf.read()
         finally:
             self.unload()
