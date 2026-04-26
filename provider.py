@@ -693,7 +693,7 @@ class AudioGenerator:
                 final_prompt += f", {bpm} BPM"
 
             gen = torch.Generator(device=self.device).manual_seed(seed)
-
+            print(f"Stable audio open 1.0 prompt: {final_prompt}")
             t0 = time.time()
 
             result = self.pipeline(
