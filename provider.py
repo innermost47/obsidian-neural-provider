@@ -388,6 +388,7 @@ class StableAudioGenerator:
         self.config_filename = config_filename
         self._lock = threading.Lock()
         self._generating = False
+        self.model_key = model_key
 
     def generate(
         self, prompt: str, bpm: int, bars: int, key: Optional[str], seed: int
