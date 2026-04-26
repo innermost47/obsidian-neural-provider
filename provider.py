@@ -83,7 +83,6 @@ MAX_DURATION = 30
 MIN_DURATION = 2
 TARGET_SAMPLE_RATE = 44100
 
-
 _llm_generating: bool = False
 
 generator: Optional["AudioGenerator"] = None
@@ -382,6 +381,7 @@ class StableAudioGenerator:
         repo_id: str,
         ckpt_filename: str,
         config_filename: str = "model_config.json",
+        model_key: str = "",
     ):
         self.repo_id = repo_id
         self.ckpt_filename = ckpt_filename
@@ -410,6 +410,13 @@ class StableAudioGenerator:
         from stable_audio_tools.models.factory import create_model_from_config
         from stable_audio_tools.models.utils import load_ckpt_state_dict
 
+        FORCED_75_STEPS_MODELS = {
+            "foundation-1",
+            "audialab-edm-elements",
+            "rc-infinite-pianos",
+            "rc-vocal-textures",
+        }
+
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         dtype = (
             torch.bfloat16
@@ -431,7 +438,11 @@ class StableAudioGenerator:
         model.to(device).to(dtype).eval().requires_grad_(False)
         training_config = model_config.get("training", {})
         demo_config = training_config.get("demo", {})
-        steps = demo_config.get("demo_steps", 75)
+        steps = (
+            75
+            if self.model_key in FORCED_75_STEPS_MODELS
+            else demo_config.get("demo_steps", 75)
+        )
         cfg_scales = demo_config.get("demo_cfg_scales", [7.0])
         cfg_scale = cfg_scales[-1] if isinstance(cfg_scales, list) else 7.0
         demo_cond = demo_config.get("demo_cond", [{}])
@@ -712,7 +723,9 @@ async def lifespan(app: FastAPI):
         generator = AudioGenerator(model_key=MODEL_KEY)
 
     for model_key, (repo_id, ckpt, config) in STABLE_AUDIO_MODELS.items():
-        stable_audio_generators[model_key] = StableAudioGenerator(repo_id, ckpt, config)
+        stable_audio_generators[model_key] = StableAudioGenerator(
+            repo_id, ckpt, config, model_key=model_key
+        )
         print(f"  {model_key} : {repo_id}/{ckpt}")
 
     print(f"  Model  : {generator.model_id}")
