@@ -897,10 +897,9 @@ async def process(raw: dict):
                 )
 
         elif request.action == "generate":
-            use_stable_audio_model = (
-                request.model in STABLE_AUDIO_MODELS
-                or request.model == "stable-audio-open-1.0"
-            )
+            if request.model == "stable-audio-open-1.0":
+                request.model = "stable-audio-open-small"
+            use_stable_audio_model = request.model in STABLE_AUDIO_MODELS
 
             if use_stable_audio_model:
                 sag = stable_audio_generators.get(request.model)
