@@ -293,6 +293,8 @@ async def ollama_infer(
         response = await client.chat(
             model=LLM_MODEL,
             messages=messages,
+            format="json",
+            keep_alive=0,
         )
         return response.message.content
     finally:
