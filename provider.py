@@ -427,6 +427,9 @@ class StableAudioGenerator:
         from stable_audio_tools.models.factory import create_model_from_config
         from stable_audio_tools.models.utils import load_ckpt_state_dict
 
+        model = None
+        state_dict = None
+
         FORCED_75_STEPS_MODELS = {
             "foundation-1",
             "audialab-edm-elements",
@@ -553,15 +556,14 @@ class StableAudioGenerator:
             return buf.read(), snapped_bpm
 
         finally:
-            try:
-                model.to("cpu")
-            except Exception:
-                pass
-            del model
-            try:
+            if model is not None:
+                try:
+                    model.to("cpu")
+                except Exception:
+                    pass
+                del model
+            if state_dict is not None:
                 del state_dict
-            except NameError:
-                pass
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
                 torch.cuda.empty_cache()
