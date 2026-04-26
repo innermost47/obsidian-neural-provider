@@ -299,6 +299,11 @@ async def ollama_infer(
             messages=messages,
             format="json",
             keep_alive=0,
+            options={
+                "num_gpu": 99,
+                "num_ctx": 4096,
+                "f16_kv": True,
+            },
         )
         return response.message.content
     finally:
