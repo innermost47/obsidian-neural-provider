@@ -77,6 +77,11 @@ STABLE_AUDIO_MODELS = {
         "gluten-v1.safetensors",
         "gluten-v1_model_config.json",
     ),
+    "stable-audio-open-small": (
+        "stabilityai/stable-audio-open-small",
+        "model.safetensors",
+        "model_config.json",
+    ),
 }
 SUPPORTED_BPM = [100, 110, 120, 128, 130, 140, 150]
 MAX_DURATION = 30
@@ -892,7 +897,10 @@ async def process(raw: dict):
                 )
 
         elif request.action == "generate":
-            use_stable_audio_model = request.model in STABLE_AUDIO_MODELS
+            use_stable_audio_model = (
+                request.model in STABLE_AUDIO_MODELS
+                or request.model == "stable-audio-open-1.0"
+            )
 
             if use_stable_audio_model:
                 sag = stable_audio_generators.get(request.model)
