@@ -558,6 +558,14 @@ class StableAudioGenerator:
                 torch.cuda.ipc_collect()
             gc.collect()
 
+            try:
+                import ctypes
+
+                libc = ctypes.CDLL("libc.so.6")
+                libc.malloc_trim(0)
+            except Exception:
+                pass
+
 
 class AudioGenerator:
     def __init__(self, model_key: str = "stable-audio-open-1.0"):
@@ -615,12 +623,27 @@ class AudioGenerator:
                 self.pipeline.to("cpu")
             except Exception:
                 pass
+            try:
+                del self.pipeline.text_encoder
+                del self.pipeline.transformer
+                del self.pipeline.vae
+            except Exception:
+                pass
         self.pipeline = None
+
         if torch.cuda.is_available():
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
         gc.collect()
+
+        try:
+            import ctypes
+
+            libc = ctypes.CDLL("libc.so.6")
+            libc.malloc_trim(0)
+        except Exception:
+            pass
 
     def generate_with_seed(
         self,
