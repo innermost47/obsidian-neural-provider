@@ -363,10 +363,6 @@ def connect_to_central_registry():
             time.sleep(10)
 
 
-import httpx
-import time
-
-
 def send_heartbeat_sync():
     limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
 
