@@ -363,23 +363,36 @@ def connect_to_central_registry():
             time.sleep(10)
 
 
+import httpx
+import time
+
+
 def send_heartbeat_sync():
-    while True:
-        time.sleep(HEARTBEAT_INTERVAL)
-        if not CENTRAL_SERVER_URL or not PROVIDER_API_KEY:
-            continue
-        try:
-            with httpx.Client(timeout=10.0) as client:
-                client.post(
+    limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
+
+    with httpx.Client(timeout=10.0, limits=limits) as client:
+        while True:
+            if not CENTRAL_SERVER_URL or not PROVIDER_API_KEY:
+                time.sleep(HEARTBEAT_INTERVAL)
+                continue
+
+            try:
+                response = client.post(
                     f"{CENTRAL_SERVER_URL.rstrip('/')}/api/v1/providers/heartbeat",
-                    headers={
-                        "X-API-Key": PROVIDER_API_KEY,
-                    },
+                    headers={"X-API-Key": PROVIDER_API_KEY},
                     json=True,
                 )
-            print(f"💓 Heartbeat sent")
-        except Exception as e:
-            print(f"⚠️  Heartbeat failed: {e}")
+                response.raise_for_status()
+                print(f"💓 Heartbeat sent")
+
+            except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+                print(f"⚠️  Network/DNS issue: {e}. Retrying next time...")
+            except httpx.HTTPStatusError as e:
+                print(f"🚫 Server returned an error: {e.response.status_code}")
+            except Exception as e:
+                print(f"❓ Unexpected error: {e}")
+
+            time.sleep(HEARTBEAT_INTERVAL)
 
 
 def _nearest_supported_bpm(bpm: int) -> int:
