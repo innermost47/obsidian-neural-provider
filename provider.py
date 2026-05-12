@@ -21,7 +21,13 @@ from pydantic import BaseModel, field_validator, ConfigDict
 import websockets
 import sys
 import ollama
-
+import math
+import json as _json
+from einops import rearrange
+from huggingface_hub import hf_hub_download
+from stable_audio_tools.inference.generation import generate_diffusion_cond
+from stable_audio_tools.models.factory import create_model_from_config
+from stable_audio_tools.models.utils import load_ckpt_state_dict
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -386,7 +392,46 @@ def _nearest_supported_bpm(bpm: int) -> int:
     return min(SUPPORTED_BPM, key=lambda x: abs(x - bpm))
 
 
-class StableAudioGenerator:
+class Generator:
+    def _finalize_audio(self, audio, clip_seconds, sample_rate):
+        try:
+            if isinstance(audio, np.ndarray):
+                audio = torch.from_numpy(audio)
+            if audio.ndim == 3:
+                from einops import rearrange
+
+                audio = rearrange(audio, "b d n -> d (b n)")
+            audio = audio.to(torch.float32).clamp(-1, 1)
+
+            clip_samples = int(round(clip_seconds * sample_rate))
+            audio = audio[:, : max(1, min(audio.shape[-1], clip_samples))].contiguous()
+
+            fade_len = min(int(round(0.015 * sample_rate)), audio.shape[-1])
+            if fade_len > 1:
+                ramp = torch.linspace(
+                    1.0, 0.0, steps=fade_len, device=audio.device, dtype=audio.dtype
+                )
+                audio[:, -fade_len:] *= ramp
+
+            audio_np = audio.cpu().numpy()
+            max_val = np.max(np.abs(audio_np))
+            if max_val > 0:
+                audio_np = audio_np / max_val * 0.9
+
+            if audio_np.ndim == 2 and audio_np.shape[0] == 2:
+                audio_to_write = np.ascontiguousarray(audio_np.T)
+            else:
+                audio_to_write = audio_np
+
+            buf = io.BytesIO()
+            sf.write(buf, audio_to_write, sample_rate, format="WAV", subtype="PCM_16")
+            buf.seek(0)
+            return buf.read()
+        finally:
+            del audio
+
+
+class StableAudioGenerator(Generator):
     def __init__(
         self,
         repo_id: str,
@@ -394,6 +439,7 @@ class StableAudioGenerator:
         config_filename: str = "model_config.json",
         model_key: str = "",
     ):
+        super().__init__()
         self.repo_id = repo_id
         self.ckpt_filename = ckpt_filename
         self.config_filename = config_filename
@@ -414,13 +460,6 @@ class StableAudioGenerator:
     def _generate(
         self, prompt: str, bpm: int, bars: int, key: Optional[str], seed: int
     ) -> bytes:
-        import math
-        import json as _json
-        from einops import rearrange
-        from huggingface_hub import hf_hub_download
-        from stable_audio_tools.inference.generation import generate_diffusion_cond
-        from stable_audio_tools.models.factory import create_model_from_config
-        from stable_audio_tools.models.utils import load_ckpt_state_dict
 
         FORCED_75_STEPS_MODELS = {
             "foundation-1",
@@ -517,34 +556,8 @@ class StableAudioGenerator:
             )
             print(f"✅ {self.ckpt_filename} done in {time.time() - t0:.2f}s")
 
-            audio = rearrange(audio, "b d n -> d (b n)")
-            audio = audio.to(torch.float32).clamp(-1, 1)
-
-            clip_samples = int(round(clip_seconds * sample_rate))
-            audio = audio[:, : max(1, min(audio.shape[-1], clip_samples))].contiguous()
-
-            fade_len = min(int(round(0.015 * sample_rate)), audio.shape[-1])
-            if fade_len > 1:
-                ramp = torch.linspace(
-                    1.0, 0.0, steps=fade_len, device=audio.device, dtype=audio.dtype
-                )
-                audio[:, -fade_len:] *= ramp
-
-            audio_np = audio.cpu().numpy()
-            max_val = np.max(np.abs(audio_np))
-            if max_val > 0:
-                audio_np = audio_np / max_val * 0.9
-
-            if audio_np.ndim == 2 and audio_np.shape[0] == 2:
-                audio_to_write = np.ascontiguousarray(audio_np.T)
-            else:
-                audio_to_write = audio_np
-
-            buf = io.BytesIO()
-            sf.write(buf, audio_to_write, sample_rate, format="WAV", subtype="PCM_16")
-            buf.seek(0)
-            del audio
-            return buf.read(), snapped_bpm
+            audio = self._finalize_audio(audio, clip_seconds, sample_rate)
+            return audio, snapped_bpm
 
         finally:
             try:
@@ -571,8 +584,9 @@ class StableAudioGenerator:
                 pass
 
 
-class AudioGenerator:
+class AudioGenerator(Generator):
     def __init__(self, model_key: str = "stable-audio-open-1.0"):
+        super().__init()
         self.model_key = model_key
         self.model_id = SUPPORTED_MODELS[model_key]
         self.pipeline = None
@@ -707,44 +721,9 @@ class AudioGenerator:
 
             print(f"✅ Verify done in {time.time() - t0:.1f}s")
 
-            audio = result.audios[0].float().cpu().numpy()
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
-            if self.sample_rate != TARGET_SAMPLE_RATE:
-                if len(audio.shape) > 1 and audio.shape[0] == 2:
-                    audio = np.array(
-                        [
-                            librosa.resample(
-                                audio[0],
-                                orig_sr=self.sample_rate,
-                                target_sr=TARGET_SAMPLE_RATE,
-                            ),
-                            librosa.resample(
-                                audio[1],
-                                orig_sr=self.sample_rate,
-                                target_sr=TARGET_SAMPLE_RATE,
-                            ),
-                        ]
-                    )
-                else:
-                    audio = librosa.resample(
-                        audio, orig_sr=self.sample_rate, target_sr=TARGET_SAMPLE_RATE
-                    )
-
-            max_val = np.max(np.abs(audio))
-            if max_val > 0:
-                audio = audio / max_val * 0.9
-
-            if len(audio.shape) > 1 and audio.shape[0] == 2:
-                audio = audio.T
-
-            buf = io.BytesIO()
-            sf.write(buf, audio, TARGET_SAMPLE_RATE, format="WAV")
-            buf.seek(0)
-            del audio
-            return buf.read()
+            audio = result.audios[0].float()
+            audio = self._finalize_audio(audio, duration, TARGET_SAMPLE_RATE)
+            return audio
         finally:
             self.unload()
 
