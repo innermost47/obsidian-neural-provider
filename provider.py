@@ -402,6 +402,9 @@ def _nearest_supported_bpm(bpm: int) -> int:
 
 
 class Generator:
+    def __init__(self):
+        pass
+
     def _finalize_audio(self, audio, clip_seconds, sample_rate):
         try:
             if isinstance(audio, np.ndarray):
@@ -595,7 +598,7 @@ class StableAudioGenerator(Generator):
 
 class AudioGenerator(Generator):
     def __init__(self, model_key: str = "stable-audio-open-1.0"):
-        super().__init()
+        super().__init__()
         self.model_key = model_key
         self.model_id = SUPPORTED_MODELS[model_key]
         self.pipeline = None
