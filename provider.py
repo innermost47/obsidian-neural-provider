@@ -516,13 +516,17 @@ class StableAudioGenerator(Generator):
 
         try:
             sample_rate = model_config["sample_rate"]
-            snapped_bpm = _nearest_supported_bpm(bpm)
-            if snapped_bpm != bpm:
+            snapped_bpm = (
+                _nearest_supported_bpm(bpm)
+                if self.model_key in FORCED_75_STEPS_MODELS
+                else None
+            )
+            if snapped_bpm and snapped_bpm != bpm:
                 print(
                     f"⚠️ BPM {bpm} → snapped to {snapped_bpm} (stretch managed by the central server)"
                 )
 
-            clip_seconds = (60.0 / snapped_bpm) * 4 * bars
+            clip_seconds = (60.0 / snapped_bpm) * 4 * bars if snapped_bpm else 30
             seconds_int = int(math.ceil(clip_seconds))
             min_input = getattr(model, "min_input_length", None)
             target_samples = int(seconds_int * sample_rate)
@@ -537,7 +541,11 @@ class StableAudioGenerator(Generator):
             if key:
                 parts.append(key)
             parts.append(f"{bars} Bars")
-            parts.append(f"{snapped_bpm} BPM")
+            (
+                parts.append(f"{snapped_bpm} BPM")
+                if snapped_bpm
+                else parts.append(f"{bpm} BPM")
+            )
             full_prompt = ", ".join(parts)
             print(f"📝 Model prompt: {full_prompt}")
 
