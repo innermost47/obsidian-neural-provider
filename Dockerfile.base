@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04 AS base
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV HF_HOME=/root/.cache/huggingface
@@ -24,7 +24,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir packaging setuptools wheel
 RUN pip install --no-cache-dir torch==2.7.1 torchvision torchaudio==2.7.1 \
-    --index-url https://download.pytorch.org/whl/cu121
+    --index-url https://download.pytorch.org/whl/cu118
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir stable-audio-tools
 RUN pip install --no-cache-dir einops safetensors
