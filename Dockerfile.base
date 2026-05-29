@@ -18,23 +18,26 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
     update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
 
 RUN curl -fsSL https://ollama.com/install.sh | sh
+
 WORKDIR /app
+
 COPY requirements.txt .
-
 RUN pip install --no-cache-dir packaging setuptools wheel
-
-RUN pip install --no-cache-dir torch torchvision torchaudio \
+RUN pip install --no-cache-dir torch==2.7.1 torchvision torchaudio==2.7.1 \
     --index-url https://download.pytorch.org/whl/cu121
-
 RUN pip install --no-cache-dir -r requirements.txt
-
 RUN pip install --no-cache-dir stable-audio-tools
 RUN pip install --no-cache-dir einops safetensors
+
+RUN pip install --no-cache-dir \
+    https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.7.16/flash_attn-2.6.3+cu126torch2.7-cp310-cp310-linux_x86_64.whl \
+    || echo "⚠️ flash-attn install failed, SA3 will fallback to flex_attention"
 
 ARG HF_TOKEN
 RUN python3 -c "from huggingface_hub import login; login(token='${HF_TOKEN}')" && \
     python3 -c "from diffusers import StableAudioPipeline; StableAudioPipeline.from_pretrained('stabilityai/stable-audio-open-1.0')" && \
-    python3 -c "from huggingface_hub import hf_hub_download; [hf_hub_download(repo_id=r, filename=f) for r,f in [('RoyalCities/Foundation-1','Foundation_1.safetensors'),('RoyalCities/Foundation-1','model_config.json'),('innermost47/obsidian-neural-models','audialab-edm-elements.safetensors'),('innermost47/obsidian-neural-models','audialab-edm-elements_model_config.json'),('innermost47/obsidian-neural-models','rc-infinite-pianos.safetensors'),('innermost47/obsidian-neural-models','rc-infinite-pianos_model_config.json'),('innermost47/obsidian-neural-models','rc-vocal-textures.safetensors'),('innermost47/obsidian-neural-models','rc-vocal-textures_model_config.json'),('innermost47/obsidian-neural-models','sao-instrumental.safetensors'),('innermost47/obsidian-neural-models','sao-instrumental_model_config.json'),('innermost47/obsidian-neural-models','stablebeat.safetensors'),('innermost47/obsidian-neural-models','stablebeat_model_config.json'),('innermost47/obsidian-neural-models','gluten-v1.safetensors'),('innermost47/obsidian-neural-models','gluten-v1_model_config.json')]]; print('All models cached.')"
+    python3 -c "from huggingface_hub import hf_hub_download; [hf_hub_download(repo_id=r, filename=f) for r,f in [('RoyalCities/Foundation-1','Foundation_1.safetensors'),('RoyalCities/Foundation-1','model_config.json'),('innermost47/obsidian-neural-models','audialab-edm-elements.safetensors'),('innermost47/obsidian-neural-models','audialab-edm-elements_model_config.json'),('innermost47/obsidian-neural-models','rc-infinite-pianos.safetensors'),('innermost47/obsidian-neural-models','rc-infinite-pianos_model_config.json'),('innermost47/obsidian-neural-models','rc-vocal-textures.safetensors'),('innermost47/obsidian-neural-models','rc-vocal-textures_model_config.json'),('innermost47/obsidian-neural-models','sao-instrumental.safetensors'),('innermost47/obsidian-neural-models','sao-instrumental_model_config.json'),('innermost47/obsidian-neural-models','stablebeat.safetensors'),('innermost47/obsidian-neural-models','stablebeat_model_config.json'),('innermost47/obsidian-neural-models','gluten-v1.safetensors'),('innermost47/obsidian-neural-models','gluten-v1_model_config.json')]]; print('All RoyalCities/innermost47 models cached.')" && \
+    python3 -c "from stable_audio_tools import get_pretrained_model; m, c = get_pretrained_model('stabilityai/stable-audio-3-medium'); print('SA3 Medium cached.')"
 
 RUN ollama serve & \
     sleep 5 && \

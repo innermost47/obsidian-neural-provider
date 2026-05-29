@@ -9,7 +9,6 @@ from contextlib import asynccontextmanager
 from typing import Optional
 import json
 import httpx
-import librosa
 import numpy as np
 import soundfile as sf
 import torch
@@ -84,6 +83,11 @@ STABLE_AUDIO_MODELS = {
         "gluten-v1_model_config.json",
     ),
 }
+
+STABLE_AUDIO_3_MODELS = {
+    "stable-audio-3-medium": "stabilityai/stable-audio-3-medium",
+}
+
 SUPPORTED_BPM = [100, 110, 120, 128, 130, 140, 150]
 MAX_DURATION = 30
 MIN_DURATION = 2
@@ -94,6 +98,7 @@ _vram_lock = asyncio.Lock()
 
 generator: Optional["AudioGenerator"] = None
 stable_audio_generators: dict[str, "StableAudioGenerator"] = {}
+stable_audio_3_generators: dict[str, "StableAudio3Generator"] = {}
 
 
 class AudioProcessRequest(BaseModel):
@@ -118,7 +123,11 @@ class AudioProcessRequest(BaseModel):
     @field_validator("model")
     @classmethod
     def validate_model(cls, v):
-        allowed = {"stable-audio-open-1.0"} | set(STABLE_AUDIO_MODELS.keys())
+        allowed = (
+            {"stable-audio-open-1.0"}
+            | set(STABLE_AUDIO_MODELS.keys())
+            | set(STABLE_AUDIO_3_MODELS.keys())
+        )
         if v not in allowed:
             raise ValueError(f"model must be one of {allowed}")
         return v
@@ -441,6 +450,127 @@ class Generator:
             return buf.read()
         finally:
             del audio
+
+
+class StableAudio3Generator(Generator):
+
+    def __init__(self, repo_id: str, model_key: str = ""):
+        super().__init__()
+        self.repo_id = repo_id
+        self.model_key = model_key
+        self._lock = threading.Lock()
+        self._generating = False
+
+    def generate(
+        self,
+        prompt: str,
+        duration: int,
+        seed: int,
+        bpm: Optional[int] = None,
+        key: Optional[str] = None,
+    ) -> bytes:
+        with self._lock:
+            self._generating = True
+            try:
+                return self._generate(prompt, duration, seed, bpm, key)
+            finally:
+                self._generating = False
+
+    def _generate(
+        self,
+        prompt: str,
+        duration: int,
+        seed: int,
+        bpm: Optional[int] = None,
+        key: Optional[str] = None,
+    ) -> bytes:
+        from stable_audio_tools import get_pretrained_model
+        from stable_audio_tools.inference.generation import (
+            generate_diffusion_cond_inpaint,
+        )
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        use_half = device.type == "cuda"
+
+        if not prompt or not prompt.strip():
+            raise ValueError("prompt cannot be None or empty")
+
+        seed = seed if seed is not None else torch.randint(0, 2**31 - 1, (1,)).item()
+        duration = max(MIN_DURATION, min(MAX_DURATION_SA3, duration))
+
+        model = None
+        model_config = None
+        try:
+            print(f"⚡ Loading {self.repo_id} (SA3) on {device}...")
+            model, model_config = get_pretrained_model(self.repo_id)
+            sample_rate = model_config["sample_rate"]
+            sample_size = model_config["sample_size"]
+
+            model = model.to(device)
+            if use_half:
+                model = model.to(torch.float16)
+            model.eval().requires_grad_(False)
+
+            final_prompt = prompt.strip()
+            if key:
+                final_prompt += f", {key}"
+            if bpm:
+                final_prompt += f", {bpm} BPM"
+
+            sa3_steps = 8
+            sa3_cfg = 1.0
+            sa3_sampler = "pingpong"
+
+            conditioning = [
+                {
+                    "prompt": final_prompt,
+                    "seconds_total": float(duration),
+                }
+            ]
+
+            print(f"📝 SA3 prompt: {final_prompt}")
+            print(
+                f"🛠️ SA3 config: steps={sa3_steps}, cfg={sa3_cfg}, "
+                f"sampler={sa3_sampler}, duration={duration}s"
+            )
+            t0 = time.time()
+
+            output = generate_diffusion_cond_inpaint(
+                model,
+                steps=sa3_steps,
+                cfg_scale=sa3_cfg,
+                conditioning=conditioning,
+                sample_size=sample_size,
+                sampler_type=sa3_sampler,
+                device=device,
+                seed=seed,
+            )
+
+            print(f"✅ SA3 done in {time.time() - t0:.2f}s")
+
+            audio = self._finalize_audio(output, duration, sample_rate)
+            return audio
+
+        finally:
+            if model is not None:
+                try:
+                    model.to("cpu")
+                except Exception:
+                    pass
+                del model
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+            gc.collect()
+
+            try:
+                import ctypes
+
+                libc = ctypes.CDLL("libc.so.6")
+                libc.malloc_trim(0)
+            except Exception:
+                pass
 
 
 class StableAudioGenerator(Generator):
@@ -780,6 +910,12 @@ async def lifespan(app: FastAPI):
         )
         print(f"  {model_key} : {repo_id}/{ckpt}")
 
+    for model_key, repo_id in STABLE_AUDIO_3_MODELS.items():
+        stable_audio_3_generators[model_key] = StableAudio3Generator(
+            repo_id, model_key=model_key
+        )
+        print(f"  {model_key} : {repo_id} (SA3)")
+
     print(f"  Model  : {generator.model_id}")
     print(f"  Device : {generator.device}")
 
@@ -851,12 +987,18 @@ async def process(raw: dict):
                     "status": "ok",
                     "model": generator.model_key,
                     "model_id": generator.model_id,
-                    "available_models": list(STABLE_AUDIO_MODELS.keys())
-                    + ["stable-audio-open-1.0"],
+                    "available_models": (
+                        list(STABLE_AUDIO_MODELS.keys())
+                        + list(STABLE_AUDIO_3_MODELS.keys())
+                        + ["stable-audio-open-1.0"]
+                    ),
                 }
             )
 
         elif request.action == "status":
+            any_sa3_generating = any(
+                s._generating for s in stable_audio_3_generators.values()
+            )
             any_sag_generating = any(
                 s._generating for s in stable_audio_generators.values()
             )
@@ -864,6 +1006,7 @@ async def process(raw: dict):
                 generator is not None
                 and not generator._generating
                 and not any_sag_generating
+                and not any_sa3_generating
                 and not _llm_generating
             )
             vram_info = {}
@@ -882,6 +1025,7 @@ async def process(raw: dict):
                         "model_id": generator.model_id,
                         "device": generator.device,
                         "generating": generator._generating
+                        or any_sa3_generating
                         or any_sag_generating
                         or _llm_generating,
                         "generating_llm": _llm_generating,
@@ -890,9 +1034,52 @@ async def process(raw: dict):
                 )
 
         elif request.action == "generate":
+            use_sa3_model = request.model in STABLE_AUDIO_3_MODELS
             use_stable_audio_model = request.model in STABLE_AUDIO_MODELS
 
-            if use_stable_audio_model:
+            if use_sa3_model:
+                sa3 = stable_audio_3_generators.get(request.model)
+                if sa3 is None:
+                    raise HTTPException(
+                        status_code=503, detail=f"Model {request.model} not available"
+                    )
+                if sa3._generating:
+                    raise HTTPException(
+                        status_code=503, detail="Already generating — try again later"
+                    )
+
+                duration = max(MIN_DURATION, min(MAX_DURATION, request.duration or 30))
+                try:
+                    loop = asyncio.get_event_loop()
+                    async with _vram_lock:
+                        wav_bytes = await loop.run_in_executor(
+                            None,
+                            sa3.generate,
+                            request.prompt,
+                            duration,
+                            request.seed,
+                            request.bpm,
+                            request.key,
+                        )
+                    return Response(
+                        content=wav_bytes,
+                        media_type="audio/wav",
+                        headers={
+                            "X-Provider-Key": PROVIDER_API_KEY,
+                            "X-Model": request.model,
+                            "X-Duration": str(duration),
+                            "X-Sample-Rate": str(TARGET_SAMPLE_RATE),
+                            "X-Seed": str(request.seed),
+                        },
+                    )
+                except Exception as e:
+                    print(f"❌ SA3 error: {e}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"SA3 generation failed: {str(e)}",
+                    )
+
+            elif use_stable_audio_model:
                 sag = stable_audio_generators.get(request.model)
                 if sag is None:
                     raise HTTPException(
