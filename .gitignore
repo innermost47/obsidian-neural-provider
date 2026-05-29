@@ -60,3 +60,5 @@ benchmark_results/
 
 models/*
 !models/.gitkeep
+
+NOTES.md
