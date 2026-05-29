@@ -496,7 +496,7 @@ class StableAudio3Generator(Generator):
             raise ValueError("prompt cannot be None or empty")
 
         seed = seed if seed is not None else torch.randint(0, 2**31 - 1, (1,)).item()
-        duration = max(MIN_DURATION, min(MAX_DURATION_SA3, duration))
+        duration = max(MIN_DURATION, min(MAX_DURATION, duration))
 
         model = None
         model_config = None
