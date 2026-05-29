@@ -23,15 +23,14 @@ WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir packaging setuptools wheel
-RUN pip install --no-cache-dir torch==2.7.1 torchvision torchaudio==2.7.1 \
+RUN pip install --no-cache-dir torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
     --index-url https://download.pytorch.org/whl/cu118
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir stable-audio-tools
 RUN pip install --no-cache-dir einops safetensors
 
 RUN pip install --no-cache-dir \
-    https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.7.16/flash_attn-2.6.3+cu126torch2.7-cp310-cp310-linux_x86_64.whl \
-    || echo "⚠️ flash-attn install failed, SA3 will fallback to flex_attention"
+    https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.7.16/flash_attn-2.6.3+cu118torch2.7-cp310-cp310-linux_x86_64.whl
 
 ARG HF_TOKEN
 RUN python3 -c "from huggingface_hub import login; login(token='${HF_TOKEN}')" && \
