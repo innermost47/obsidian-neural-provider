@@ -24,9 +24,14 @@ import math
 import json as _json
 from einops import rearrange
 from huggingface_hub import hf_hub_download
-from stable_audio_tools.inference.generation import generate_diffusion_cond
+from stable_audio_tools.inference.generation import (
+    generate_diffusion_cond,
+    generate_diffusion_cond_inpaint,
+)
 from stable_audio_tools.models.factory import create_model_from_config
 from stable_audio_tools.models.utils import load_ckpt_state_dict
+from stable_audio_tools import get_pretrained_model
+from diffusers import StableAudioPipeline
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -45,6 +50,7 @@ SUPPORTED_MODELS = {
     "stable-audio-open-1.0": "stabilityai/stable-audio-open-1.0",
 }
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+SA3_KEEP_IN_RAM: bool = os.getenv("SA3_KEEP_IN_RAM", "false").lower() == "true"
 LLM_MODEL = "gemma4:e2b"
 STABLE_AUDIO_MODELS = {
     "foundation-1": (
@@ -419,8 +425,6 @@ class Generator:
             if isinstance(audio, np.ndarray):
                 audio = torch.from_numpy(audio)
             if audio.ndim == 3:
-                from einops import rearrange
-
                 audio = rearrange(audio, "b d n -> d (b n)")
             audio = audio.to(torch.float32).clamp(-1, 1)
 
@@ -460,6 +464,8 @@ class StableAudio3Generator(Generator):
         self.model_key = model_key
         self._lock = threading.Lock()
         self._generating = False
+        self._cached_model = None
+        self._cached_config = None
 
     def generate(
         self,
@@ -484,10 +490,6 @@ class StableAudio3Generator(Generator):
         bpm: Optional[int] = None,
         key: Optional[str] = None,
     ) -> bytes:
-        from stable_audio_tools import get_pretrained_model
-        from stable_audio_tools.inference.generation import (
-            generate_diffusion_cond_inpaint,
-        )
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         use_half = device.type == "cuda"
@@ -502,13 +504,24 @@ class StableAudio3Generator(Generator):
         model_config = None
         try:
             print(f"⚡ Loading {self.repo_id} (SA3) on {device}...")
-            model, model_config = get_pretrained_model(self.repo_id)
+            if SA3_KEEP_IN_RAM and self._cached_model is not None:
+                print(f"♻️  SA3 cache hit (RAM → GPU)")
+                model = self._cached_model.to(device)
+                if use_half:
+                    model = model.to(torch.float16)
+                model_config = self._cached_config
+            else:
+                print(f"⚡ Loading {self.repo_id} (SA3) on {device}...")
+                model, model_config = get_pretrained_model(self.repo_id)
+                if SA3_KEEP_IN_RAM:
+                    self._cached_model = model
+                    self._cached_config = model_config
+                model = model.to(device)
+                if use_half:
+                    model = model.to(torch.float16)
+
             sample_rate = model_config["sample_rate"]
             sample_size = model_config["sample_size"]
-
-            model = model.to(device)
-            if use_half:
-                model = model.to(torch.float16)
             model.eval().requires_grad_(False)
 
             final_prompt = prompt.strip()
@@ -554,10 +567,13 @@ class StableAudio3Generator(Generator):
         finally:
             if model is not None:
                 try:
-                    model.to("cpu")
+                    if SA3_KEEP_IN_RAM:
+                        model.to("cpu")
+                    else:
+                        model.to("cpu")
+                        del model
                 except Exception:
                     pass
-                del model
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
                 torch.cuda.empty_cache()
@@ -746,7 +762,6 @@ class AudioGenerator(Generator):
         self._generating = False
 
     def load(self):
-        from diffusers import StableAudioPipeline
 
         print(f"⚡ Loading {self.model_id} on {self.device}...")
 
@@ -915,6 +930,12 @@ async def lifespan(app: FastAPI):
             repo_id, model_key=model_key
         )
         print(f"  {model_key} : {repo_id} (SA3)")
+
+    if SA3_KEEP_IN_RAM:
+        print("🔥 Pre-loading SA3 into RAM (SA3_KEEP_IN_RAM=true)...")
+        for sa3 in stable_audio_3_generators.values():
+            sa3._cached_model, sa3._cached_config = get_pretrained_model(sa3.repo_id)
+        print("✅ SA3 ready in RAM")
 
     print(f"  Model  : {generator.model_id}")
     print(f"  Device : {generator.device}")
