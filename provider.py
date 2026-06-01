@@ -506,10 +506,11 @@ class StableAudio3Generator(Generator):
             print(f"⚡ Loading {self.repo_id} (SA3) on {device}...")
             if SA3_KEEP_IN_RAM and self._cached_model is not None:
                 print(f"♻️  SA3 cache hit (RAM → GPU)")
-                model = self._cached_model.to(device)
+                model = self._cached_model
+                model_config = self._cached_config
+                model.to(device)
                 if use_half:
                     model = model.to(torch.float16)
-                model_config = self._cached_config
             else:
                 print(f"⚡ Loading {self.repo_id} (SA3) on {device}...")
                 model, model_config = get_pretrained_model(self.repo_id)
@@ -567,8 +568,8 @@ class StableAudio3Generator(Generator):
         finally:
             if model is not None:
                 try:
-                    if SA3_KEEP_IN_RAM:
-                        model.to("cpu")
+                    if SA3_KEEP_IN_RAM and self._cached_model is not None:
+                        self._cached_model.to("cpu")
                     else:
                         model.to("cpu")
                         del model
