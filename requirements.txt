@@ -14,4 +14,3 @@ python-dotenv>=1.0.0
 torchsde
 websockets
 huggingface_hub
-ollama

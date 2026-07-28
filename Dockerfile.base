@@ -2,8 +2,6 @@ FROM nvidia/cuda:12.6.2-cudnn-runtime-ubuntu22.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV HF_HOME=/root/.cache/huggingface
-ENV OLLAMA_HOST=0.0.0.0
-ENV OLLAMA_MODELS=/root/.ollama/models
 
 RUN apt-get update && apt-get install -y \
     software-properties-common \
@@ -17,11 +15,10 @@ RUN apt-get update && apt-get install -y \
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
     update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
 
-RUN curl -fsSL https://ollama.com/install.sh | sh
-
 WORKDIR /app
 
 COPY requirements.txt .
+
 RUN pip install --no-cache-dir packaging setuptools wheel
 RUN pip install --no-cache-dir torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
     --index-url https://download.pytorch.org/whl/cu126
@@ -54,8 +51,3 @@ RUN python3 -c "from huggingface_hub import login, hf_hub_download; login(token=
 RUN python3 -c "from huggingface_hub import login, hf_hub_download; login(token='${HF_TOKEN}'); hf_hub_download(repo_id='innermost47/obsidian-neural-models', filename='gluten-v1.safetensors'); hf_hub_download(repo_id='innermost47/obsidian-neural-models', filename='gluten-v1_model_config.json'); print('Gluten V1 cached')"
 
 RUN python3 -c "from huggingface_hub import login; login(token='${HF_TOKEN}'); from stable_audio_tools import get_pretrained_model; m, c = get_pretrained_model('stabilityai/stable-audio-3-medium'); print('SA3 Medium cached')"
-
-RUN ollama serve & \
-    sleep 5 && \
-    ollama pull gemma4:e2b && \
-    pkill ollama || true
