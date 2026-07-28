@@ -64,6 +64,10 @@ def connect_to_central_registry():
     while True:
         if not CENTRAL_SERVER_URL or not PROVIDER_API_KEY:
             print("⚠️ WebSocket: credentials not ready, retrying in 10s...")
+            if not CENTRAL_SERVER_URL:
+                print("Missing central sever url.")
+            if not PROVIDER_API_KEY:
+                print("Missing provider api key.")
             time.sleep(10)
             continue
         try:
