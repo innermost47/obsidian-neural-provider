@@ -22,6 +22,8 @@ from settings import (
     MAX_DURATION,
     TARGET_SAMPLE_RATE,
     SUPPORTED_MODELS,
+    HOST,
+    PORT,
 )
 from models import AudioProcessRequest
 from server_utils import (
