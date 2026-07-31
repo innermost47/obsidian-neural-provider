@@ -6,6 +6,7 @@ COPY base_generator.py .
 COPY models.py .
 COPY sa_generator.py .
 COPY sa3_generator.py .
+COPY credentials.py .
 COPY server_utils.py .
 COPY settings.py .
 COPY entrypoint.sh .

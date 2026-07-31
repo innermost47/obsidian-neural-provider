@@ -1,18 +1,21 @@
 import asyncio
-import os
-import time
 import json
-import httpx
-from fastapi import HTTPException, Header, status as fastapi_status
-import websockets
+import secrets
 import sys
+import time
+
+import httpx
+import websockets
+from fastapi import Header, HTTPException, status as fastapi_status
+import credentials
 from settings import (
-    SHARED_SECRET,
-    CREDENTIALS_FILE,
     CENTRAL_SERVER_URL,
-    PROVIDER_API_KEY,
-    MODEL_KEY,
     HEARTBEAT_INTERVAL,
+    MODEL_KEY,
+    WS_MAX_ATTEMPTS,
+    WS_BACKOFF_BASE,
+    WS_BACKOFF_MAX,
+    CREDENTIALS_WAIT_INTERVAL,
 )
 
 
@@ -20,40 +23,82 @@ def sanitize_header(value: str) -> str:
     return value.encode("latin-1", errors="replace").decode("latin-1")
 
 
+def _wait_for_credentials(context: str) -> str:
+    warned = False
+    while True:
+        api_key = credentials.get_api_key()
+        if api_key and CENTRAL_SERVER_URL:
+            if warned:
+                print(f"✅ {context}: credentials ready")
+            return api_key
+
+        if not warned:
+            if not CENTRAL_SERVER_URL:
+                print(f"⚠️  {context}: CENTRAL_SERVER_URL is not configured")
+            if not api_key:
+                print(f"⚠️  {context}: provider API key not ready yet")
+            print(f"   Retrying every {CREDENTIALS_WAIT_INTERVAL}s...")
+            warned = True
+
+        time.sleep(CREDENTIALS_WAIT_INTERVAL)
+
+
 async def verify_server_identity(x_api_key: str = Header(None)):
-    if not SHARED_SECRET or x_api_key != SHARED_SECRET:
+    expected = credentials.get_shared_secret()
+    provided = (x_api_key or "").strip()
+
+    if not expected:
+        print("🚫 Auth rejected: no shared secret loaded on this provider")
         raise HTTPException(
             status_code=fastapi_status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized",
         )
-    return x_api_key
+
+    if not secrets.compare_digest(provided.encode(), expected.encode()):
+        print(
+            f"🚫 Auth rejected: shared secret mismatch "
+            f"(received len={len(provided)}, expected len={len(expected)})"
+        )
+        raise HTTPException(
+            status_code=fastapi_status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+        )
+
+    return provided
 
 
 async def activate_with_token(token: str, central_url: str) -> dict:
-    if os.path.exists(CREDENTIALS_FILE):
-        print("🔑 Loading saved credentials...")
-        with open(CREDENTIALS_FILE, "r") as f:
-            return json.load(f)
-
     print("🔑 Activating provider with token...")
+
     async with httpx.AsyncClient(timeout=30) as client:
         try:
             response = await client.post(
                 f"{central_url.rstrip('/')}/api/v1/providers/activate",
                 json={"token": token},
             )
-            if response.status_code != 200:
-                print(f"❌ Activation failed: {response.text}")
-                sys.exit(1)
-            data = response.json()
-            os.makedirs(os.path.dirname(CREDENTIALS_FILE), exist_ok=True)
-            with open(CREDENTIALS_FILE, "w") as f:
-                json.dump(data, f)
-            print(f"✅ Activated as: {data['provider_name']}")
-            return data
         except Exception as e:
             print(f"❌ Cannot reach central server: {e}")
             sys.exit(1)
+
+    if response.status_code != 200:
+        print(f"❌ Activation failed (HTTP {response.status_code}): {response.text}")
+        print("   A token can only be used once — check for an existing")
+        print("   credentials file, or request a new token.")
+        sys.exit(1)
+
+    try:
+        data = response.json()
+    except json.JSONDecodeError:
+        print("❌ Activation response is not valid JSON")
+        sys.exit(1)
+
+    missing = [k for k in ("api_key", "server_to_provider_key") if not data.get(k)]
+    if missing:
+        print(f"❌ Activation response is missing field(s): {', '.join(missing)}")
+        sys.exit(1)
+
+    print(f"✅ Activated as: {data.get('provider_name', 'unknown')}")
+    return data
 
 
 def connect_to_central_registry():
@@ -62,53 +107,57 @@ def connect_to_central_registry():
     attempts = 0
 
     while True:
-        if not CENTRAL_SERVER_URL or not PROVIDER_API_KEY:
-            print("⚠️ WebSocket: credentials not ready, retrying in 10s...")
-            if not CENTRAL_SERVER_URL:
-                print("Missing central sever url.")
-            if not PROVIDER_API_KEY:
-                print("Missing provider api key.")
-            time.sleep(10)
-            continue
-        try:
-            ws_url = (
-                CENTRAL_SERVER_URL.replace("http://", "ws://")
-                .replace("https://", "wss://")
-                .rstrip("/")
-            )
-            uri = f"{ws_url}/api/v1/providers/connect"
+        api_key = _wait_for_credentials("WebSocket")
 
-            headers = {
-                "X-Provider-Key": PROVIDER_API_KEY,
-                "X-Model": MODEL_KEY,
-            }
-            print(f"🔌 Attempting to connect to the central registry: {uri}...")
+        ws_url = (
+            CENTRAL_SERVER_URL.replace("http://", "ws://")
+            .replace("https://", "wss://")
+            .rstrip("/")
+        )
+        uri = f"{ws_url}/api/v1/providers/connect"
+        websocket = None
+
+        try:
+            print(f"🔌 Connecting to central registry: {uri}...")
             websocket = loop.run_until_complete(
                 websockets.connect(
                     uri,
-                    additional_headers=headers,
+                    additional_headers={
+                        "X-Provider-Key": api_key,
+                        "X-Model": MODEL_KEY,
+                    },
                     ping_interval=20,
                     ping_timeout=60,
                 )
             )
             attempts = 0
-            print("✅ Connected to the central server (Active presence)")
+            print("✅ Connected to central server (presence active)")
 
             while True:
                 loop.run_until_complete(websocket.recv())
 
         except Exception as e:
             attempts += 1
-            if attempts > 3:
-                print(
-                    f"\nCritical Error: Failed to connect to registry after {attempts} attempts."
-                )
-                print(f"Details: {e}")
-                print("Exiting process...")
-                exit(1)
-            print(f"❌ Register disconnection (Error: {e})")
-            print("🔄 Attempting to reconnect in 10 seconds...")
-            time.sleep(10)
+            print(f"❌ Registry disconnected (error: {e})")
+
+            if attempts >= WS_MAX_ATTEMPTS:
+                print(f"\n💥 Critical: registry unreachable after {attempts} attempts.")
+                print(f"   Details: {e}")
+                print("   Exiting process...")
+                sys.exit(1)
+
+            delay = min(WS_BACKOFF_BASE * (2 ** (attempts - 1)), WS_BACKOFF_MAX)
+            print(
+                f"🔄 Reconnecting in {delay}s (attempt {attempts}/{WS_MAX_ATTEMPTS})..."
+            )
+            time.sleep(delay)
+
+        finally:
+            if websocket is not None:
+                try:
+                    loop.run_until_complete(websocket.close())
+                except Exception:
+                    pass
 
 
 def send_heartbeat_sync():
@@ -116,24 +165,24 @@ def send_heartbeat_sync():
 
     with httpx.Client(timeout=10.0, limits=limits) as client:
         while True:
-            if not CENTRAL_SERVER_URL or not PROVIDER_API_KEY:
-                time.sleep(HEARTBEAT_INTERVAL)
-                continue
+            api_key = _wait_for_credentials("Heartbeat")
 
             try:
                 response = client.post(
                     f"{CENTRAL_SERVER_URL.rstrip('/')}/api/v1/providers/heartbeat",
-                    headers={"X-API-Key": PROVIDER_API_KEY},
+                    headers={"X-API-Key": api_key},
                     json=True,
                 )
                 response.raise_for_status()
-                print(f"💓 Heartbeat sent")
+                print("💓 Heartbeat sent")
 
             except (httpx.ConnectError, httpx.ConnectTimeout) as e:
-                print(f"⚠️  Network/DNS issue: {e}. Retrying next time...")
+                print(f"⚠️  Network/DNS issue: {e}. Retrying next cycle...")
             except httpx.HTTPStatusError as e:
-                print(f"🚫 Server returned an error: {e.response.status_code}")
+                print(f"🚫 Heartbeat rejected: HTTP {e.response.status_code}")
+                if e.response.status_code in (401, 403):
+                    print("   The central server does not recognize this API key.")
             except Exception as e:
-                print(f"❓ Unexpected error: {e}")
+                print(f"❓ Unexpected heartbeat error: {e}")
 
             time.sleep(HEARTBEAT_INTERVAL)
